@@ -15,15 +15,49 @@
         <script>
             $("#update-form").submit(function(e) {
                 $.get("/api/player/" + $("input:first").val()).done(function() {
-                    $("#updates").append($("<li>").text("(found)"));
+                    $("#updates").append(
+                        $("<li>")
+                        .text("(found)")
+                        .css("color", "black")
+                    );
                 }).fail(function() {
-                    $("#updates").append($("<li>").text("(not found)"));
+                    $("#updates").append(
+                        $("<li>")
+                        .text("(not found)")
+                        .css("color", "red")
+                    );
                 });
                 e.preventDefault();
             });
             var socket = io();
             socket.on("job update", function(msg) {
-                $("#updates").append($("<li>").text(msg));
+                $("#updates").append(
+                    $("<li>")
+                    .text(msg)
+                    .css("color", "grey")
+                );
+            });
+            socket.on("player grab failed", function(msg) {
+                $("#updates").append(
+                    $("<li>")
+                    .text("no new data for player " + msg.id +
+                    " (" + msg.name + ")")
+                    .css("color", "red")
+                );
+            });
+            socket.on("player processed", function(msg) {
+                $("#updates").append(
+                    $("<li>")
+                    .text("processed player " + msg)
+                    .css("color", "green")
+                );
+            });
+            socket.on("player compiled", function(msg) {
+                $("#updates").append(
+                    $("<li>")
+                    .text("compiled player " + msg)
+                    .css("color", "orange")
+                );
             });
         </script>
     </body>

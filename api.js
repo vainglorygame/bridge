@@ -178,11 +178,93 @@ app.get("/", async (req, res) => {
 });
 
 /* notifications from database */
-function listen() {
-    var client = new pg.Client(db_config_raw);
-    client.connect();
-    client.on('notification', (msg) => {
+async function listen() {
+    var client = new pg.Client(db_config_raw),
+        last_broadcast_ids = {};
+
+    /* save the current state of the job queue */
+    await client.connect();
+    last_broadcast_ids.grab = (await client.query(`
+        SELECT id FROM jobs
+        WHERE type='process'
+        ORDER BY id DESC LIMIT 1
+    `)).rows[0].id;
+    last_broadcast_ids.process = (await client.query(`
+        SELECT id FROM jobs
+        WHERE type='process'
+        ORDER BY id DESC LIMIT 1
+    `)).rows[0].id;
+    last_broadcast_ids.compile = (await client.query(`
+        SELECT id FROM jobs
+        WHERE type='compile'
+        ORDER BY id DESC LIMIT 1
+    `)).rows[0].id;
+
+    /* job status change notification listener */
+    client.on('notification', async (msg) => {
+        var raw = await pool_raw.connect();
+        // TODO DRY
+        if (msg.channel == "grab_failed") {
+            // get all jobs between the last time and the notification
+            // TODO remove playername in 2.0
+            var grab_jobs = await raw.query(`
+                SELECT
+                MAX(id) AS id,
+                payload->'params'->>'filter[playerIds]' AS playerid,
+                payload->'params'->>'filter[playerNames]' AS playername
+                FROM jobs
+                WHERE type='grab' AND status='failed' AND id>$1
+                GROUP BY playerid, playername
+            `, [last_broadcast_ids.grab]);
+            grab_jobs.rows.sort((a, b) => { return a.id < b.id; });
+            for (let grab_job of grab_jobs.rows) {
+                // send a notification for each player name
+                io.emit("player grab failed", {
+                    "name": grab_job.playername,
+                    "id": grab_job.playerid
+                });
+            }
+            if (grab_jobs.rows.length > 0) {
+                last_broadcast_ids.grab = grab_jobs.rows[0].id;
+            }
+        }
+        if (msg.channel == "process_finished") {
+            // get all jobs between the last time and the notification
+            var process_jobs = await raw.query(`
+                SELECT
+                MAX(id) AS id, payload->>'playername' AS name FROM jobs
+                WHERE type='process' AND status='finished' AND id>$1
+                GROUP BY name
+            `, [last_broadcast_ids.process]);
+            process_jobs.rows.sort((a, b) => { return a.id < b.id; });
+            for (let process_job of process_jobs.rows) {
+                // send a notification for each player name
+                io.emit("player processed", process_job.name);
+            }
+            if (process_jobs.rows.length > 0) {
+                last_broadcast_ids.process = process_jobs.rows[0].id;
+            }
+        }
+        if (msg.channel == "compile_finished") {
+            // get all jobs between the last time and the notification
+            var compile_jobs = await raw.query(`
+                SELECT
+                MAX(id) AS id, payload->>'id' AS playerid FROM jobs
+                WHERE type='compile' AND payload->>'type'='player'
+                AND status='finished' AND id>$1
+                GROUP BY playerid
+            `, [last_broadcast_ids.compile]);
+            compile_jobs.rows.sort((a, b) => { return a.id < b.id; });
+            for (let compile_job of compile_jobs.rows) {
+                // send a notification for each player name
+                io.emit("player compiled", compile_job.playerid);
+            }
+            if (compile_jobs.rows.length > 0) {
+                last_broadcast_ids.compile = compile_jobs.rows[0].id;
+            }
+        }
         io.emit("job update", msg.channel);
+        raw.release();
     });
     client.query("LISTEN grab_open");
     client.query("LISTEN process_open");
