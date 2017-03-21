@@ -117,6 +117,14 @@ app.get("/api/player/:name", async (req, res) => {
         grab_start = new Date("2017-01-01T00:00:00Z");
     }
 
+    var timedelta_minutes = ((new Date()) - grab_start) / 1000 / 60;
+    // TODO make it configurable
+    if (timedelta_minutes < 30) {
+        console.log("player '" + name + "' update skipped");
+        res.sendStatus(304);
+        return;
+    }
+
     /* request update job */
     // createdAt-start <= x <= createdAt-end
     grab_start.setSeconds(grab_start.getSeconds() + 1);
