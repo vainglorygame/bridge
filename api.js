@@ -126,8 +126,11 @@ app.get("/api/player/:name", async (req, res) => {
     }
 
     /* request update job */
+    var jobid = -1;
+
     // createdAt-start <= x <= createdAt-end
     grab_start.setSeconds(grab_start.getSeconds() + 1);
+
     payload = {
         "region": player_region,
         "params": {
@@ -137,16 +140,26 @@ app.get("/api/player/:name", async (req, res) => {
             "filter[gameMode]": "casual,ranked"
         }
     };
-    var jobq = await raw.query(`
-        INSERT INTO jobs(type, payload, priority)
-        VALUES('grab', $1, 0)
+
+    var job = await raw.query(`
+        UPDATE jobs SET priority=0
+        WHERE payload=$1 AND status<>'finished'
         RETURNING id
     `, [payload]);
+    if (job.rows.length == 0) {
+        job = await raw.query(`
+            INSERT INTO jobs(type, payload, priority)
+            VALUES('grab', $1, 0)
+            RETURNING id
+        `, [payload]);
+        // wake apigrabber up
+        await raw.query(`NOTIFY grab_open`, []);
+        console.log("player '" + name + "' new job requested");
+    }
+
     console.log("player '" + name + "' updating after " + grab_start.toISOString());
 
-    /* wake apigrabber up */
-    await raw.query(`NOTIFY grab_open`, []);
-    jobid = jobq.rows[0].id;
+    jobid = job.rows[0].id;
 
     /* clean up */
     raw.release();
