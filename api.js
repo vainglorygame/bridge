@@ -141,22 +141,54 @@ app.get("/api/player/:name", async (req, res) => {
         }
     };
 
-    var job = await raw.query(`
-        UPDATE jobs SET priority=0
-        WHERE
-        (
-            (type='grab' AND payload=$1) OR
-            (type='process' AND payload->>'playername'=$1->'params'->>'filter[playerNames]') OR
-            (type='compile' AND payload->>'type'='player' AND payload->>'id'=$1->'params'->>'filter[playerIds]')
-        ) AND status<>'finished' AND status<>'failed'
-        RETURNING id
-    `, [payload]);
-    if (job.rows.length == 0) {
-        job = await raw.query(`
-            INSERT INTO jobs(type, payload, priority)
-            VALUES('grab', $1, 0)
+    /* transaction begin */
+    try {
+        await raw.query("BEGIN");
+        await raw.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+        var job = await raw.query(`
+            UPDATE jobs SET priority=0
+            WHERE
+            (
+                (type='grab' AND payload=$1) OR
+                (type='process' AND payload->>'playername'=$1->'params'->>'filter[playerNames]') OR
+                (type='compile' AND payload->>'type'='player' AND payload->>'id'=$1->'params'->>'filter[playerIds]')
+            ) AND status<>'finished' AND status<>'failed'
             RETURNING id
         `, [payload]);
+        await raw.query("COMMIT");
+    } catch (err) {
+        if (err.code == "40001") {
+            // serialization error - expected
+            res.sendStatus(202);  // try again
+            return;
+        } else {
+            throw err;
+        }
+    }
+    /* transaction end */
+
+    if (job.rows.length == 0) {
+        /* transaction begin */
+        try {
+            await raw.query("BEGIN");
+            await raw.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+            job = await raw.query(`
+                INSERT INTO jobs(type, payload, priority)
+                VALUES('grab', $1, 0)
+                RETURNING id
+            `, [payload]);
+            await raw.query("COMMIT");
+        } catch (err) {
+            if (err.code == "40001") {
+                // serialization error - expected
+                res.sendStatus(202);  // try again
+                return;
+            } else {
+                throw err;
+            }
+        }
+        /* transaction end */
+
         // wake apigrabber up
         await raw.query(`NOTIFY grab_open`, []);
         console.log("player '" + name + "' new job requested");
