@@ -94,7 +94,9 @@ app.get("/api/player/:name", async (req, res) => {
         player_region = player.rows[0].shard_id;
         grab_start = player.rows[0].last_match_created_date;
         // TODO db does not save time zone offset @stormcaller remove this
-        grab_start.setMinutes(grab_start.getMinutes() - (new Date().getTimezoneOffset()));
+        if (grab_start != undefined)
+            grab_start.setMinutes(grab_start.getMinutes() -
+                (new Date().getTimezoneOffset()));
     }
     /* not found */
     if (player.rows.length == 0) {
@@ -110,6 +112,8 @@ app.get("/api/player/:name", async (req, res) => {
 
         player_id = player.id;
         player_region = player.region;
+    }
+    if (grab_start == undefined) {
         grab_start = new Date("2017-01-01T00:00:00Z");
     }
 
