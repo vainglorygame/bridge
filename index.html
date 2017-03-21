@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Vainsocial backend status</title>
+    </head>
+    <body>
+        <form id="update-form">
+            <input type="text">
+            <input type="submit" value="Update">
+        </form>
+
+        <ul id="updates"></ul>
+        <script src="/socket.io/socket.io.js"></script>
+        <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+        <script>
+            $("#update-form").submit(function(e) {
+                $.get("/api/player/" + $("input:first").val()).done(function() {
+                    $("#updates").append($("<li>").text("(found)"));
+                }).fail(function() {
+                    $("#updates").append($("<li>").text("(not found)"));
+                });
+                e.preventDefault();
+            });
+            var socket = io();
+            socket.on("job update", function(msg) {
+                $("#updates").append($("<li>").text(msg));
+            });
+        </script>
+    </body>
+</html>
