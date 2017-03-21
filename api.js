@@ -276,7 +276,10 @@ async function listen() {
             process_jobs.rows.sort((a, b) => { return a.id < b.id; });
             for (let process_job of process_jobs.rows) {
                 // send a notification for each player name
-                io.emit("player processed", process_job.name);
+                io.emit("player processed", {
+                    "id": null,
+                    "name": process_job.name
+                });
             }
             if (process_jobs.rows.length > 0) {
                 last_broadcast_ids.process = process_jobs.rows[0].id;
@@ -294,7 +297,10 @@ async function listen() {
             compile_jobs.rows.sort((a, b) => { return a.id < b.id; });
             for (let compile_job of compile_jobs.rows) {
                 // send a notification for each player name
-                io.emit("player compiled", compile_job.playerid);
+                io.emit("player compiled", {
+                    "id": compile_job.playerid,
+                    "name": null
+                });
             }
             if (compile_jobs.rows.length > 0) {
                 last_broadcast_ids.compile = compile_jobs.rows[0].id;

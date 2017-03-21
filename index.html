@@ -48,14 +48,16 @@
             socket.on("player processed", function(msg) {
                 $("#updates").append(
                     $("<li>")
-                    .text("processed player " + msg)
+                    .text("processed player " + msg.id +
+                    " (" + msg.name + ")")
                     .css("color", "green")
                 );
             });
             socket.on("player compiled", function(msg) {
                 $("#updates").append(
                     $("<li>")
-                    .text("compiled player " + msg)
+                    .text("compiled player " + msg.id +
+                    " (" + msg.name + ")")
                     .css("color", "orange")
                 );
             });
