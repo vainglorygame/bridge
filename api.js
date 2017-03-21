@@ -143,7 +143,12 @@ app.get("/api/player/:name", async (req, res) => {
 
     var job = await raw.query(`
         UPDATE jobs SET priority=0
-        WHERE payload=$1 AND status<>'finished'
+        WHERE
+        (
+            (type='grab' AND payload=$1) OR
+            (type='process' AND payload->>'playername'=$1->'params'->>'filter[playerNames]') OR
+            (type='compile' AND payload->>'type'='player' AND payload->>'id'=$1->'params'->>'filter[playerIds]')
+        ) AND status<>'finished' AND status<>'failed'
         RETURNING id
     `, [payload]);
     if (job.rows.length == 0) {
