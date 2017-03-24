@@ -13,13 +13,39 @@
         <script src="/socket.io/socket.io.js"></script>
         <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
         <script>
+            var socket = io();
             $("#update-form").submit(function(e) {
-                $.get("/api/player/" + $("input:first").val()).done(function() {
+                var name = $("input:first").val();
+                $.get("/api/player/name/" + name).done(function() {
                     $("#updates").append(
                         $("<li>")
                         .text("(found)")
                         .css("color", "black")
                     );
+                    /* subscribe to socket notifications */
+                    socket.on(name, function(msg) {
+                        if (msg == "grab_failed")  {
+                            $("#updates").append(
+                                $("<li>")
+                                .text(name + ": no new data")
+                                .css("color", "red")
+                            );
+                        }
+                        if (msg == "process_finished")  {
+                            $("#updates").append(
+                                $("<li>")
+                                .text(name + ": processed")
+                                .css("color", "green")
+                            );
+                        }
+                        if (msg == "compile_finished")  {
+                            $("#updates").append(
+                                $("<li>")
+                                .text(name + ": compiled")
+                                .css("color", "orange")
+                            );
+                        }
+                    });
                 }).fail(function() {
                     $("#updates").append(
                         $("<li>")
@@ -28,38 +54,6 @@
                     );
                 });
                 e.preventDefault();
-            });
-            var socket = io();
-            socket.on("job update", function(msg) {
-                $("#updates").append(
-                    $("<li>")
-                    .text(msg)
-                    .css("color", "grey")
-                );
-            });
-            socket.on("player grab failed", function(msg) {
-                $("#updates").append(
-                    $("<li>")
-                    .text("no new data for player " + msg.id +
-                    " (" + msg.name + ")")
-                    .css("color", "red")
-                );
-            });
-            socket.on("player processed", function(msg) {
-                $("#updates").append(
-                    $("<li>")
-                    .text("processed player " + msg.id +
-                    " (" + msg.name + ")")
-                    .css("color", "green")
-                );
-            });
-            socket.on("player compiled", function(msg) {
-                $("#updates").append(
-                    $("<li>")
-                    .text("compiled player " + msg.id +
-                    " (" + msg.name + ")")
-                    .css("color", "orange")
-                );
             });
         </script>
     </body>
