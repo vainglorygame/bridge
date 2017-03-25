@@ -341,8 +341,8 @@ async function listen() {
                 player = await db_playerById(job.player_id);
             else
                 player = await db_playerByName(job.player_name);
-            if (player == undefined) throw "player had a job, but doesn't exist";
             console.log("sending '%s' notification for player '%s' ('%s')", msg.channel, player.name, player.id);
+            if (player == undefined) throw "player had a job, but doesn't exist";
             io.emit(player.name, msg.channel);
             io.emit(player.id, msg.channel);
             if (!await anyJobsRunningFor(player.name, player.id)) {
