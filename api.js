@@ -237,7 +237,7 @@ async function playerRequestUpdate(name, id) {
             "filter[gameMode]": "casual,ranked"
         }
     };
-    job = await upsertGrabjob(payload);
+    upsertGrabjob(payload);  // TODO do something with response?
 
     return player;
 }
