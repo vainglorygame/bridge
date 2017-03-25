@@ -280,25 +280,34 @@ async function listen() {
         // find all interesting jobs, delete them & forward their notification
         if (msg.channel == "grab_failed") {
             jobs = await raw.query(`
-                DELETE FROM jobs WHERE
-                type='grab' AND status='failed' AND payload->'error'->>'title'='Not Found'
-                RETURNING
-                payload->'params'->>'filter[playerIds]' AS player_id,
-                payload->'params'->>'filter[playerNames]' AS player_name
+                WITH grab_failed AS (
+                    DELETE FROM jobs WHERE
+                    type='grab' AND status='failed' AND payload->'error'->>'title'='Not Found'
+                    RETURNING
+                    payload->'params'->>'filter[playerIds]' AS player_id,
+                    payload->'params'->>'filter[playerNames]' AS player_name
+                )
+                SELECT DISTINCT * FROM grab_failed
             `);
         }
         if (msg.channel == "process_finished") {
             jobs = await raw.query(`
-                DELETE FROM jobs WHERE
-                type='process' AND status='finished'
-                RETURNING payload->>'playername' AS player_name
+                WITH process_finished AS (
+                    DELETE FROM jobs WHERE
+                    type='process' AND status='finished'
+                    RETURNING payload->>'playername' AS player_name
+                )
+                SELECT DISTINCT * FROM process_finished
             `);
         }
         if (msg.channel == "compile_finished") {
             jobs = await raw.query(`
-                DELETE FROM jobs WHERE
-                type='compile' AND payload->>'type'='player' AND status='finished'
-                RETURNING payload->>'id' AS player_id
+                WITH compile_finished AS (
+                    DELETE FROM jobs WHERE
+                    type='compile' AND payload->>'type'='player' AND status='finished'
+                    RETURNING payload->>'id' AS player_id
+                )
+                SELECT DISTINCT * FROM compile_finished
             `);
         }
 
