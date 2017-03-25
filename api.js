@@ -281,7 +281,7 @@ async function listen() {
         if (msg.channel == "grab_failed") {
             jobs = await raw.query(`
                 DELETE FROM jobs WHERE
-                type='grab' AND status='failed' AND payload->>'error'='Not Found'
+                type='grab' AND status='failed' AND payload->'error'->>'title'='Not Found'
                 RETURNING
                 payload->'params'->>'filter[playerIds]' AS player_id,
                 payload->'params'->>'filter[playerNames]' AS player_name
