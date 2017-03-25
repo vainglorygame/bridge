@@ -45,6 +45,13 @@
                                 .css("color", "orange")
                             );
                         }
+                        if (msg == "done")  {
+                            $("#updates").append(
+                                $("<li>")
+                                .text(name + ": done")
+                                .css("color", "red")
+                            );
+                        }
                     });
                 }).fail(function() {
                     $("#updates").append(

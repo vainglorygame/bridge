@@ -160,6 +160,21 @@ async function playerById(id) {
     console.log("player with id '" + name + "' not found in API");
     return undefined;
 }
+/* returns true if a player has pending jobs */
+async function anyJobsRunningFor(name, id) {
+    var raw = await pool_raw.connect();
+    result = await raw.query(`
+        SELECT COUNT(*)>0 AS jobs_running FROM jobs
+        WHERE
+        (
+            (type='grab' AND payload->'params'->>'filter[playerNames]'=$1) OR
+            (type='process' AND payload->>'playername'=$1) OR
+            (type='compile' AND payload->>'type'='player' AND payload->>'id'=$2)
+        ) AND status<>'finished' AND status<>'failed'
+    `, [name, id]);  // TODO improve dependency tracking
+    raw.release();
+    return result.rows[0].jobs_running;
+}
 
 
 /* update request helpers */
@@ -327,9 +342,13 @@ async function listen() {
             else
                 player = await db_playerByName(job.player_name);
             if (player == undefined) throw "player had a job, but doesn't exist";
-            console.log("sending '%s' notification for player '%s'", msg.channel, player.name);
+            console.log("sending '%s' notification for player '%s' ('%s')", msg.channel, player.name, player.id);
             io.emit(player.name, msg.channel);
             io.emit(player.id, msg.channel);
+            if (!await anyJobsRunningFor(player.name, player.id)) {
+                io.emit(player.name, "done");
+                io.emit(player.id, "done");
+            }
         }
     });
     client.query("LISTEN process_finished");
