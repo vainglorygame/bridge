@@ -47,12 +47,11 @@ async function api_playerByAttr(attr, val) {
                 "X-Title-Id": "semc-vainglory",
                 "Authorization": APITOKEN
             },
-            qs: {
-                filter: val
-            },
+            qs: {},
             json: true,
             gzip: true
         };
+        options.qs[filter] = val;
         try {
             res = await request(options);
             finds.push({
@@ -62,6 +61,9 @@ async function api_playerByAttr(attr, val) {
                 "source": "api"
             });
         } catch (err) {
+            if (err.statusCode != 404) {
+                console.error(err);
+            }
             // TODO
         }
     }
