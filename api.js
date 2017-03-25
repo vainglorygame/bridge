@@ -36,7 +36,7 @@ http.listen(8080);
 /* API helper */
 /* search for player name across all shards */
 async function api_playerByAttr(attr, val) {
-    var regions = ["na", "eu", "sg"],
+    var regions = ["na", "eu", "sg", "sa", "ea"],
         finds = [],
         filter = "filter[" + attr + "]";
 
