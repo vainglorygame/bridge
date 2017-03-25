@@ -6,19 +6,19 @@ var request = require("request-promise");
 var pg = require("pg");
 var Pool = pg.Pool;
 var db_config_raw = {
-    user: "vainraw",
-    password: "vainraw",
-    host: "localhost",
-    database: "vainsocial-raw",
-    port: 5433,
+    user: process.env.POSTGRESQL_SOURCE_USER || "vainraw",
+    password: process.env.POSTGRESQL_SOURCE_PASSWORD || "vainraw",
+    host: process.env.POSTGRESQL_SOURCE_HOST || "localhost",
+    database: process.env.POSTGRESQL_SOURCE_DB || "vainsocial-raw",
+    port: process.env.POSTGRESQL_SOURCE_PORT || 5433,
     max: 10
 };
 var db_config_web = {
-    user: "vainweb",
-    password: "vainweb",
-    host: "localhost",
-    database: "vainsocial-web",
-    port: 5432,
+    user: process.env.POSTGRESQL_DEST_USER || "vainweb",
+    password: process.env.POSTGRESQL_DEST_PASSWORD || "vainweb",
+    host: process.env.POSTGRESQL_DEST_HOST || "localhost",
+    database: process.env.POSTGRESQL_DEST_DB || "vainsocial-web",
+    port: process.env.POSTGRESQL_DEST_PORT || 5432,
     max: 10
 };
 var pool_raw = new Pool(db_config_raw);
