@@ -19,7 +19,7 @@
                 $.get("/api/player/name/" + name).done(function() {
                     $("#updates").append(
                         $("<li>")
-                        .text("(found)")
+                        .text(name + ": found")
                         .css("color", "black")
                     );
                     /* subscribe to socket notifications */
@@ -49,7 +49,7 @@
                 }).fail(function() {
                     $("#updates").append(
                         $("<li>")
-                        .text("(not found)")
+                        .text(name + ": not found")
                         .css("color", "red")
                     );
                 });
