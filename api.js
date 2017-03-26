@@ -59,6 +59,7 @@ async function api_playerByAttr(attr, val) {
             finds.push({
                 "region": res.data[0].attributes.shardId,
                 "id": res.data[0].id,
+                "name": res.data[0].attributes.name,
                 "last_update": res.data[0].attributes.createdAt,
                 "source": "api"
             });
