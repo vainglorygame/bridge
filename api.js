@@ -3,7 +3,7 @@
 
 var request = require("request-promise");
 
-var pg = require("pg");
+var pg = require("pg").native;
 var Pool = pg.Pool;
 var db_config_raw = {
     user: process.env.POSTGRESQL_SOURCE_USER || "vainraw",
