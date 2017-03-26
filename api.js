@@ -124,6 +124,7 @@ async function db_serialized(con, query, data) {
             if (err.sqlState != "40001") throw err;
             // important! with pg, it is err.code,
             // with pg-native, it is err.sqlState
+            console.log("serialization error, retrying");
         }
         /* transaction end */
     } while (!commit_success);
@@ -193,6 +194,7 @@ async function anyJobsRunningFor(con, name, id) {
             (type='compile' AND payload->>'type'='player' AND payload->>'id'=$2)
         ) AND status<>'finished' AND status<>'failed'
     `, [name, id]);  // TODO improve dependency tracking
+    console.log("jobs running for %s: %s", name, result.rows[0].jobs_running);
     return result.rows[0].jobs_running;
 }
 
