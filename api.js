@@ -206,8 +206,8 @@ async function upsertGrabjob(payload) {
         job, jobs_running;
 
     jobs_running = await anyJobsRunningFor(raw,
-        [payload.params["filter[playerNames]"],
-        payload.params["filter[playerIds]"]])
+        payload.params["filter[playerNames]"],
+        payload.params["filter[playerIds]"])
 
     if (!jobs_running) {
         // this job is currently not running, insert it
