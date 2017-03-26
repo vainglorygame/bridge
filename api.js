@@ -347,7 +347,7 @@ async function listen() {
             console.log("sending '%s' notification for player '%s' ('%s')", msg.channel, name, id);
 
             if (name != undefined) io.emit(name, msg.channel);
-            if (id != undefined) io.emit(player.id, msg.channel);
+            if (id != undefined) io.emit(id, msg.channel);
 
             // don't give up on player not being found in db (= playerByAttr returns undefined),
             // be optimistic and try to notify what we can
