@@ -121,7 +121,9 @@ async function db_serialized(con, query, data) {
             await con.query("ROLLBACK");
             // serialization error - expected, else rethrow
             console.error(err);
-            if (err.code != "40001") throw err;
+            if (err.sqlState != "40001") throw err;
+            // important! with pg, it is err.code,
+            // with pg-native, it is err.sqlState
         }
         /* transaction end */
     } while (!commit_success);
