@@ -11,6 +11,7 @@ var db_config_raw = {
     host: process.env.POSTGRESQL_SOURCE_HOST || "localhost",
     database: process.env.POSTGRESQL_SOURCE_DB || "vainsocial-raw",
     port: process.env.POSTGRESQL_SOURCE_PORT || 5433,
+    min: 2,
     max: 10
 };
 var db_config_web = {
@@ -19,6 +20,7 @@ var db_config_web = {
     host: process.env.POSTGRESQL_DEST_HOST || "localhost",
     database: process.env.POSTGRESQL_DEST_DB || "vainsocial-web",
     port: process.env.POSTGRESQL_DEST_PORT || 5432,
+    min: 4,
     max: 10
 };
 var pool_raw = new Pool(db_config_raw);
