@@ -35,6 +35,13 @@ if (APITOKEN == undefined) throw "Need a valid API token!";
 
 http.listen(8080);
 
+
+function sleep(ms) {
+    return new Promise(resolve => {
+        setTimeout(resolve, ms)
+    });
+}
+
 /* API helper */
 /* search for player name across all shards */
 async function api_playerByAttr(attr, val) {
@@ -54,20 +61,30 @@ async function api_playerByAttr(attr, val) {
             gzip: true
         };
         options.qs[filter] = val;
-        try {
-            res = await request(options);
-            finds.push({
-                "region": res.data[0].attributes.shardId,
-                "id": res.data[0].id,
-                "name": res.data[0].attributes.name,
-                "last_update": res.data[0].attributes.createdAt,
-                "source": "api"
-            });
-        } catch (err) {
-            if (err.statusCode != 404) {
-                console.error(err);
+        retry = true;
+        while (retry) {
+            try {
+                res = await request(options);
+                finds.push({
+                    "region": res.data[0].attributes.shardId,
+                    "id": res.data[0].id,
+                    "name": res.data[0].attributes.name,
+                    "last_update": res.data[0].attributes.createdAt,
+                    "source": "api"
+                });
+                retry = false;
+            } catch (err) {
+                if (err.statusCode == 429) {
+                    await sleep(100);
+                    retry = true;
+                } else if (err.statusCode == 404) {
+                    retry = false;
+                } else {
+                    console.error(err);
+                    retry = false;
+                }
+                // TODO
             }
-            // TODO
         }
     }
 
