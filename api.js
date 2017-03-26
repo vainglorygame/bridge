@@ -161,9 +161,8 @@ async function playerById(id) {
     return undefined;
 }
 /* returns true if a player has pending jobs */
-async function anyJobsRunningFor(name, id) {
-    var raw = await pool_raw.connect();
-    result = await raw.query(`
+async function anyJobsRunningFor(con, name, id) {
+    result = await con.query(`
         SELECT COUNT(*)>0 AS jobs_running FROM jobs
         WHERE
         (
@@ -172,7 +171,6 @@ async function anyJobsRunningFor(name, id) {
             (type='compile' AND payload->>'type'='player' AND payload->>'id'=$2)
         ) AND status<>'finished' AND status<>'failed'
     `, [name, id]);  // TODO improve dependency tracking
-    raw.release();
     return result.rows[0].jobs_running;
 }
 
@@ -181,23 +179,13 @@ async function anyJobsRunningFor(name, id) {
 /* upsert a job */
 async function upsertGrabjob(payload) {
     var raw = await pool_raw.connect(),
-        job;
+        job, jobs_running;
 
-    // find and prioritize existing jobs
-    job = await db_serialized(raw, `
-        UPDATE jobs SET priority=0
-        WHERE
-        (
-            (type='grab' AND payload=$1) OR
-            (type='process' AND payload->>'playername'=$1->'params'->>'filter[playerNames]') OR
-            (type='compile' AND payload->>'type'='player' AND payload->>'id'=$1->'params'->>'filter[playerIds]')
-        ) AND status<>'finished' AND status<>'failed'
-        RETURNING id
-    `, [payload]);
-    // TODO job dependency information format on jobs is shit
-    // (2.0)
+    jobs_running = await anyJobsRunningFor(raw,
+        [payload.params["filter[playerNames]"],
+        payload.params["filter[playerIds]"]])
 
-    if (job.rows.length == 0) {
+    if (!jobs_running) {
         // this job is currently not running, insert it
         job = await db_serialized(raw, `
             INSERT INTO jobs(type, payload, priority)
@@ -210,7 +198,6 @@ async function upsertGrabjob(payload) {
     }
 
     raw.release();
-    return job.rows[0];
 }
 
 async function playerRequestUpdate(name, id) {
@@ -294,6 +281,7 @@ async function listen() {
         var raw = await pool_raw.connect(),
             jobs;
 
+        await raw.query("BEGIN");  // TODO catch error & rollback
         // find all interesting jobs, delete them & forward their notification
         if (msg.channel == "grab_failed") {
             jobs = await raw.query(`
@@ -328,7 +316,6 @@ async function listen() {
             `);
         }
 
-        raw.release();
         if (jobs == undefined) return;  // nothing to do
 
         // forward notification to all playername / playerid channels
@@ -345,11 +332,14 @@ async function listen() {
             if (player == undefined) throw "player had a job, but doesn't exist";
             io.emit(player.name, msg.channel);
             io.emit(player.id, msg.channel);
-            if (!await anyJobsRunningFor(player.name, player.id)) {
+            if (!await anyJobsRunningFor(raw, player.name, player.id)) {
                 io.emit(player.name, "done");
                 io.emit(player.id, "done");
             }
         }
+
+        await raw.query("COMMIT");
+        raw.release();
     });
     client.query("LISTEN process_finished");
     client.query("LISTEN compile_finished");
