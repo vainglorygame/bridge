@@ -334,9 +334,11 @@ async function listen() {
             if (player == undefined) throw "player had a job, but doesn't exist";
             io.emit(player.name, msg.channel);
             io.emit(player.id, msg.channel);
-            if (!await anyJobsRunningFor(raw, player.name, player.id)) {
-                io.emit(player.name, "done");
-                io.emit(player.id, "done");
+            if (msg.channel == "compile_finished") {
+                if (!await anyJobsRunningFor(raw, player.name, player.id)) {
+                    io.emit(player.name, "done");
+                    io.emit(player.id, "done");
+                }
             }
         }
 
