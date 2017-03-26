@@ -319,26 +319,44 @@ async function listen() {
             `);
         }
 
-        if (jobs == undefined) return;  // nothing to do
+        if (jobs == undefined) {
+            console.log("notification was about no jobs, exiting");
+            return;  // nothing to do
+        }
 
+        console.log("forwarding notifications for %s", msg.channel);
         // forward notification to all playername / playerid channels
         for (let job of jobs.rows) {
             var name = job.player_name;
             var id = job.player_id;
-            var player;
             if (name == undefined && id == undefined) throw "notification needs either name or ID";
-            if (name == undefined)
-                player = await db_playerById(job.player_id);
-            else
-                player = await db_playerByName(job.player_name);
-            console.log("sending '%s' notification for player '%s' ('%s')", msg.channel, player.name, player.id);
-            if (player == undefined) throw "player had a job, but doesn't exist";
-            io.emit(player.name, msg.channel);
-            io.emit(player.id, msg.channel);
-            if (msg.channel == "compile_finished") {
-                if (!await anyJobsRunningFor(raw, player.name, player.id)) {
-                    io.emit(player.name, "done");
-                    io.emit(player.id, "done");
+
+            // attempt to fill gaps (TODO will not be needed in 2.0)
+            if (name == undefined && id != undefined) {
+                var player = await db_playerById(id);
+                if (player != undefined)
+                    name = player.name;
+                else console.log("id %s: warning! player had a job, but doesn't exist in db yet", id);
+            }
+            if (id == undefined && name != undefined) {
+                var player = await db_playerByName(name);
+                if (player != undefined)
+                    id = player.id;
+                else console.log("name %s: warning! player had a job, but doesn't exist in db yet", name);
+            }
+            console.log("sending '%s' notification for player '%s' ('%s')", msg.channel, name, id);
+
+            if (name != undefined) io.emit(name, msg.channel);
+            if (id != undefined) io.emit(player.id, msg.channel);
+
+            // don't give up on player not being found in db (= playerByAttr returns undefined),
+            // be optimistic and try to notify what we can
+
+            if (name != undefined && id != undefined) {
+                // re - above: when we get grab_failed/compile_finished, the player will be COMMITted already for sure, so we don't miss 'done'
+                if (msg.channel == "grab_failed" || (msg.channel == "compile_finished" && !await anyJobsRunningFor(raw, name, id))) {
+                    io.emit(name, "done");
+                    io.emit(id, "done");
                 }
             }
         }
