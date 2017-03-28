@@ -10,10 +10,10 @@
         </form>
 
         <ul id="updates"></ul>
-        <script src="/socket.io/socket.io.js"></script>
+        <!--        <script src="/socket.io/socket.io.js"></script> -->
         <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
         <script>
-            var socket = io();
+            //var socket = io();
             $("#update-form").submit(function(e) {
                 var name = $("input:first").val();
                 $.get("/api/player/name/" + name).done(function() {
@@ -23,6 +23,7 @@
                         .css("color", "black")
                     );
                     /* subscribe to socket notifications */
+                    /*
                     socket.on(name, function(msg) {
                         if (msg == "grab_failed")  {
                             $("#updates").append(
@@ -53,6 +54,7 @@
                             );
                         }
                     });
+                    */
                 }).fail(function() {
                     $("#updates").append(
                         $("<li>")

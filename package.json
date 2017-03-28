@@ -1,19 +1,16 @@
 {
-  "name": "vainsocial-updater",
+  "name": "updater",
   "version": "2.0.0",
-  "description": "Vainsocial frontend to backend communication service",
-  "main": "api.js",
+  "description": "",
+  "main": "server.js",
   "dependencies": {
-    "express": "^4.15.2",
-    "pg": "^6.1.4",
-    "request": "^2.81.0",
-    "request-promise": "^4.2.0",
-    "socketio": "^1.0.0"
+    "pg-native": "^1.10.0"
   },
   "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
   },
-  "author": "",
-  "license": ""
+  "author": "schneefux",
+  "license": "UNLICENSED"
 }
