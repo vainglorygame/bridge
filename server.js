@@ -3,8 +3,8 @@
 
 var amqp = require("amqplib"),
     request = require("request-promise"),
-    app = require("express")(),
-    http = require("http").Server(app),
+    express = require("express"),
+    http = require("http"),
     sleep = require("sleep-promise");
 
 var MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
@@ -14,9 +14,12 @@ if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
 (async () => {
     var rabbit = await amqp.connect(RABBITMQ_URI),
-        ch = await rabbit.createChannel();
+        ch = await rabbit.createChannel(),
+        app = express(),
+        server = http.Server(app);
 
-    http.listen(8880);
+    server.listen(8880);
+    app.use(express.static("assets"));
 
 
     /* API helper */

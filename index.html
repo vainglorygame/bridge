@@ -10,51 +10,52 @@
         </form>
 
         <ul id="updates"></ul>
-        <!--        <script src="/socket.io/socket.io.js"></script> -->
+        <script src="https://cdn.jsdelivr.net/sockjs/1/sockjs.min.js"></script>
+        <script type="text/javascript" src="/js/webstomp.min.js"></script>
         <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
         <script>
-            //var socket = io();
+            // fallback (TODO)
+            //var sock = SockJS("http://localhost:15674/stomp");
+            //var client = webstomp.over(sock);
+            let client = webstomp.client("ws://localhost:15674/ws");
+            client.connect("web", "web", () => {
+                $("#updates").append(
+                    $("<li>")
+                    .text("connected to socket")
+                    .css("color", "purple")
+                );
+            }, (err) => {
+                $("#updates").append(
+                    $("<li>")
+                    .text("error connecting to socket: " + err)
+                    .css("color", "red")
+                );
+            });
             $("#update-form").submit(function(e) {
-                var name = $("input:first").val();
+                let name = $("input:first").val();
                 $.get("/api/player/name/" + name).done(function() {
                     $("#updates").append(
                         $("<li>")
                         .text(name + ": found")
-                        .css("color", "black")
+                        .css("color", "green")
                     );
-                    /* subscribe to socket notifications */
-                    /*
-                    socket.on(name, function(msg) {
-                        if (msg == "grab_failed")  {
+                    client.subscribe("/topic/" + name, (msg) => {
+                        $("#updates").append(
+                            $("<li>")
+                            .text(msg.body)
+                            .css("color", "grey")
+                        );
+
+                        if (msg.body == "process_commit")  {
                             $("#updates").append(
                                 $("<li>")
-                                .text(name + ": no new data")
-                                .css("color", "red")
-                            );
-                        }
-                        if (msg == "process_finished")  {
-                            $("#updates").append(
-                                $("<li>")
-                                .text(name + ": processed")
-                                .css("color", "green")
-                            );
-                        }
-                        if (msg == "compile_finished")  {
-                            $("#updates").append(
-                                $("<li>")
-                                .text(name + ": compiled")
+                                .text(name + ": new match(es) available")
                                 .css("color", "orange")
                             );
                         }
-                        if (msg == "done")  {
-                            $("#updates").append(
-                                $("<li>")
-                                .text(name + ": done")
-                                .css("color", "red")
-                            );
-                        }
-                    });
-                    */
+
+                        msg.ack();
+                    }, {"ack": "client"});
                 }).fail(function() {
                     $("#updates").append(
                         $("<li>")
