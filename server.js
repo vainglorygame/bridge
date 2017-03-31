@@ -5,15 +5,19 @@ var amqp = require("amqplib"),
     request = require("request-promise"),
     express = require("express"),
     http = require("http"),
-    sleep = require("sleep-promise");
+    sleep = require("sleep-promise"),
+    Seq = require("sequelize");
 
 var MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
+    DATABASE_URI = process.env.DATABASE_URI || "sqlite:///db.sqlite",
     REGIONS = ["na", "eu", "sg", "sa", "ea"];
 if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
 (async () => {
     var rabbit = await amqp.connect(RABBITMQ_URI),
+        seq = new Seq(DATABASE_URI),
+        model = require("../orm/model")(seq, Seq),
         ch = await rabbit.createChannel(),
         app = express(),
         server = http.Server(app);
@@ -86,19 +90,17 @@ if (MADGLORY_TOKEN == undefined) throw "Need an API token";
     /* DB helper */
     /* find player by id or by name in db */
     async function db_playerByAttr(attr, val) {
-        var web = await pool_web.connect(),
-            player = await web.query(`
-                SELECT name, api_id, shard_id, last_match_created_date
-                FROM player WHERE ` + attr + `=$1
-            `, [val]);
-        web.release();
+        let condition = {};
+        condition[attr] = val;
+        let player = await model.Player.findOne({ where: condition });
 
-        if (player.rows.length > 0) {
+        if (player != undefined) {
+            console.log(player);
             return {
-                "name": player.rows[0].name,
-                "id": player.rows[0].api_id,
-                "region": player.rows[0].shard_id,
-                "last_update": player.rows[0].last_match_created_date,
+                "name": player.name,
+                "id": player.api_id,
+                "region": player.shard_id,
+                "last_update": player.last_match_created_date,
                 "source": "db"
             };
         }
@@ -114,10 +116,8 @@ if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
     /* returns a player by name from db or API */
     async function playerByName(name) {
-        /*
         var player = await db_playerByName(name);
         if (player != undefined) return player;
-        */
 
         console.log("player '" + name + "' not found in db");
         player = await api_playerByName(name);
@@ -128,10 +128,8 @@ if (MADGLORY_TOKEN == undefined) throw "Need an API token";
     }
     /* returns a player by id from db or API */
     async function playerById(id) {
-        /*
         var player = await db_playerById(id);
         if (player != undefined) return player;
-        */
 
         console.log("player with id '" + name + "' not found in db");
         player = await api_playerById(id);
