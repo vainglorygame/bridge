@@ -53,6 +53,13 @@
                                 .css("color", "orange")
                             );
                         }
+                        if (msg.body == "compile_commit")  {
+                            $("#updates").append(
+                                $("<li>")
+                                .text(name + ": player profile stats updated")
+                                .css("color", "orange")
+                            );
+                        }
 
                         msg.ack();
                     }, {"ack": "client"});
