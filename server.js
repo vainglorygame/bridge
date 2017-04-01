@@ -180,6 +180,8 @@ if (MADGLORY_TOKEN == undefined) throw "Need an API token";
             }
         };
         await ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)), { persistent: true });
+        if (player.source == "db")
+            await model.Player.update({ last_update: seq.fn("NOW") }, { where: { api_id: player.id } });
 
         return player;
     }
