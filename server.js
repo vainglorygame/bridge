@@ -176,7 +176,8 @@ if (MADGLORY_TOKEN == undefined) throw "Need an API token";
             "params": {
                 "filter[playerIds]": player.id,
                 "filter[createdAt-start]": player.last_update.toISOString(),
-                "filter[gameMode]": "casual,ranked"
+                "filter[gameMode]": "casual,ranked",
+                "sort": "-createdAt"
             }
         };
         await ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)), { persistent: true });
