@@ -33,10 +33,13 @@
             });
             $("#update-form").submit(function(e) {
                 let name = $("input:first").val();
-                $.get("/api/player/name/" + name).done(function() {
+                $.get("/api/player/name/" + name).done(function(player) {
                     $("#updates").append(
                         $("<li>")
-                        .text(name + ": found")
+                        .text(name + " (" + player.region + ")" + ": " +
+                            "found in " + player.source + ", " +
+                            "last update " + player.last_update
+                        )
                         .css("color", "green")
                     );
                     client.subscribe("/topic/" + name, (msg) => {
