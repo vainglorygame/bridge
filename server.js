@@ -97,7 +97,7 @@ async function searchPlayer(name) {
         //
         // send to processor, so the player is in db
         // no matter whether we find matches or not
-        await ch.sendToQueue("process", new Buffer(JSON.stringify(players)),
+        await ch.sendToQueue("process", new Buffer(JSON.stringify(players.data)),
             { persistent: true, type: "player" });
 
         // request grab jobs
