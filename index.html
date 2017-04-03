@@ -62,14 +62,14 @@
                             .css("color", "green")
                         );
                     }
-                    if (msg.body == "process_commit")  {
+                    if (msg.body == "matches_update")  {
                         $("#updates").append(
                             $("<li>")
                             .text(name + ": new match(es) available")
                             .css("color", "orange")
                         );
                     }
-                    if (msg.body == "compile_commit")  {
+                    if (msg.body == "stats_update")  {
                         $("#updates").append(
                             $("<li>")
                             .text(name + ": player profile stats updated")
