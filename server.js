@@ -88,8 +88,10 @@ async function searchPlayer(name) {
                     console.log("rate limited, sleeping");
                     await sleep(100);  // no return, no break => retry
                 } else if (err.statusCode != 404) console.error(err);
-                console.log("failed", name, region, err.statusCode);
-                return;
+                if (err.statusCode != 429) {
+                    console.log("failed", name, region, err.statusCode);
+                    return;
+                }
             }
         }
         // players.length will be 1 in 99.9% of all cases
