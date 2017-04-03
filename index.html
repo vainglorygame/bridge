@@ -10,14 +10,20 @@
         </form>
 
         <ul id="updates"></ul>
+
         <script src="https://cdn.jsdelivr.net/sockjs/1/sockjs.min.js"></script>
         <script type="text/javascript" src="/js/webstomp.min.js"></script>
         <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
         <script>
-            // fallback (TODO)
-            //var sock = SockJS("http://localhost:15674/stomp");
-            //var client = webstomp.over(sock);
-            let client = webstomp.client("ws://localhost:15674/ws");
+            let client;
+            // set up the client
+            if ('WebSocket' in window && (typeof WebSocket === 'function' || typeof WebSocket === 'object')) {
+                client = webstomp.client("ws://localhost:15674/ws");
+            } else {
+                // http fallback
+                client = webstomp.over(SockJS("http://localhost:15674/stomp"));
+            }
+            // connect
             client.connect("web", "web", () => {
                 $("#updates").append(
                     $("<li>")
@@ -27,52 +33,55 @@
             }, (err) => {
                 $("#updates").append(
                     $("<li>")
-                    .text("error connecting to socket: " + err)
+                    .text("error connecting to socket: " + JSON.stringify(err))
                     .css("color", "red")
                 );
             });
-            $("#update-form").submit(function(e) {
+
+            $("#update-form").submit((e) => {
                 let name = $("input:first").val();
-                $.get("/api/player/name/" + name).done(function(player) {
+                // subscribe
+                client.subscribe("/topic/player." + name, (msg) => {
                     $("#updates").append(
                         $("<li>")
-                        .text(name + " (" + player.region + ")" + ": " +
-                            "found in " + player.source + ", " +
-                            "last update " + player.last_update
-                        )
-                        .css("color", "green")
+                        .text(msg.body)
+                        .css("color", "grey")
                     );
-                    client.subscribe("/topic/" + name, (msg) => {
+
+                    if (msg.body == "search_fail")  {
                         $("#updates").append(
                             $("<li>")
-                            .text(msg.body)
-                            .css("color", "grey")
+                            .text(name + ": not found")
+                            .css("color", "red")
                         );
+                    }
+                    if (msg.body == "search_success")  {
+                        $("#updates").append(
+                            $("<li>")
+                            .text(name + ": found")
+                            .css("color", "green")
+                        );
+                    }
+                    if (msg.body == "process_commit")  {
+                        $("#updates").append(
+                            $("<li>")
+                            .text(name + ": new match(es) available")
+                            .css("color", "orange")
+                        );
+                    }
+                    if (msg.body == "compile_commit")  {
+                        $("#updates").append(
+                            $("<li>")
+                            .text(name + ": player profile stats updated")
+                            .css("color", "orange")
+                        );
+                    }
 
-                        if (msg.body == "process_commit")  {
-                            $("#updates").append(
-                                $("<li>")
-                                .text(name + ": new match(es) available")
-                                .css("color", "orange")
-                            );
-                        }
-                        if (msg.body == "compile_commit")  {
-                            $("#updates").append(
-                                $("<li>")
-                                .text(name + ": player profile stats updated")
-                                .css("color", "orange")
-                            );
-                        }
+                    msg.ack();
+                }, {"ack": "client"});
 
-                        msg.ack();
-                    }, {"ack": "client"});
-                }).fail(function() {
-                    $("#updates").append(
-                        $("<li>")
-                        .text(name + ": not found")
-                        .css("color", "red")
-                    );
-                });
+                // POST
+                $.post("/api/player/" + name + "/search");
                 e.preventDefault();
             });
         </script>

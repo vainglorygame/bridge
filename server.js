@@ -4,213 +4,133 @@
 var amqp = require("amqplib"),
     request = require("request-promise"),
     express = require("express"),
+    bodyparser = require("body-parser"),
     http = require("http"),
-    sleep = require("sleep-promise"),
-    Seq = require("sequelize");
+    sleep = require("sleep-promise");
 
 var MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
-    DATABASE_URI = process.env.DATABASE_URI || "sqlite:///db.sqlite",
     REGIONS = ["na", "eu", "sg", "sa", "ea"];
 if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
+var rabbit,
+    ch,
+    app = express(),
+    server = http.Server(app);
+
+// connect to broker, retrying forever
 (async () => {
-    var rabbit = await amqp.connect(RABBITMQ_URI),
-        seq = new Seq(DATABASE_URI),
-        model = require("../orm/model")(seq, Seq),
-        ch = await rabbit.createChannel(),
-        app = express(),
-        server = http.Server(app);
-
-    server.listen(8880);
-    app.use(express.static("assets"));
-
-
-    /* API helper */
-    /* search for player name across all shards */
-    async function api_playerByAttr(attr, val) {
-        let finds = [],
-            filter = "filter[" + attr + "]";
-
-        for (let region of REGIONS) {
-            let options = {
-                uri: "https://api.dc01.gamelockerapp.com/shards/" + region + "/players",
-                headers: {
-                    "X-Title-Id": "semc-vainglory",
-                    "Authorization": MADGLORY_TOKEN
-                },
-                qs: {},
-                json: true,
-                gzip: true
-            };
-            options.qs[filter] = val;
-            retry = true;
-            while (retry) {
-                try {
-                    res = await request(options);
-                    finds.push({
-                        "region": res.data[0].attributes.shardId,
-                        "id": res.data[0].id,
-                        "name": res.data[0].attributes.name,
-                        "last_update": res.data[0].attributes.createdAt,
-                        "source": "api"
-                    });
-                    retry = false;
-                } catch (err) {
-                    if (err.statusCode == 429) {
-                        await sleep(100);
-                        retry = true;
-                    } else if (err.statusCode == 404) {
-                        retry = false;
-                    } else {
-                        console.error(err);
-                        retry = false;
-                    }
-                    // TODO
-                }
-            }
+    while (true) {
+        try {
+            rabbit = await amqp.connect(RABBITMQ_URI);
+            ch = await rabbit.createChannel();
+            return;
+        } catch (err) {
+            console.error(err);
+            await sleep(1000);
         }
-
-        if (finds.length == 0)
-            return undefined;
-
-        // due to an API bug, many players are also present in NA
-        // TODO: get history for all regions in case of region transfer
-        finds.sort((a, b) => { return a.last_update < b.last_update; });
-        return finds[0];
     }
-    async function api_playerByName(name) {
-        return await api_playerByAttr("playerNames", name);
-    }
-    async function api_playerById(id) {
-        return await api_playerByAttr("playerIds", id);
-    }
-
-
-    /* DB helper */
-    /* find player by id or by name in db */
-    async function db_playerByAttr(attr, val) {
-        let condition = {};
-        condition[attr] = val;
-        let player = await model.Player.findOne({ where: condition });
-
-        if (player != undefined) {
-            console.log(player);
-            return {
-                "name": player.name,
-                "id": player.api_id,
-                "region": player.shard_id,
-                "last_update": player.last_match_created_date,
-                "source": "db"
-            };
-        }
-        return undefined;
-    }
-
-    async function db_playerByName(name) {
-        return await db_playerByAttr("name", name);
-    }
-    async function db_playerById(id) {
-        return await db_playerByAttr("api_id", id);
-    }
-
-    /* returns a player by name from db or API */
-    async function playerByName(name) {
-        var player = await db_playerByName(name);
-        if (player != undefined) return player;
-
-        console.log("player '" + name + "' not found in db");
-        player = await api_playerByName(name);
-        if (player != undefined) return player;
-
-        console.log("player '" + name + "' not found in API");
-        return undefined;
-    }
-    /* returns a player by id from db or API */
-    async function playerById(id) {
-        var player = await db_playerById(id);
-        if (player != undefined) return player;
-
-        console.log("player with id '" + name + "' not found in db");
-        player = await api_playerById(id);
-        if (player != undefined) return player;
-
-        console.log("player with id '" + name + "' not found in API");
-        return undefined;
-    }
-    /* returns true if a player has pending jobs */
-    async function anyJobsRunningFor(con, name, id) {
-        return false;  // TODO
-    }
-
-    async function playerRequestUpdate(name, id) {
-        if (name == undefined && id == undefined)  // fail hard and die
-            throw "playerRequestUpdate needs either name or id";
-
-        let player;
-        if (id != undefined)  // prefer id over name
-            player = await playerById(id);
-        else
-            player = await playerByName(name);
-        if (player == undefined)
-            return undefined;  // 404
-
-        console.log("updating player '%j'", player);
-
-        // if last_update is from our db, use it as a start, else get the whole history
-        if (player.source == "api" || player.last_update == undefined)
-            player.last_update = new Date(value=0);  // forever ago
-
-        // add 1s, because createdAt-start <= x <= createdAt-end
-        // so without the +1s, we'd always get the last_match_created_date match back
-        player.last_update.setSeconds(player.last_update.getSeconds() + 1);
-
-        var timedelta_minutes = ((new Date()) - player.last_update) / 1000 / 60;
-        if (timedelta_minutes < 30) {
-            console.log("player '" + player.name + "' update skipped");
-            return player;
-        }
-
-        var payload = {
-            "region": player.region,
-            "params": {
-                "filter[playerIds]": player.id,
-                "filter[createdAt-start]": player.last_update.toISOString(),
-                "filter[gameMode]": "casual,ranked",
-                "sort": "-createdAt"
-            }
-        };
-        await ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)), { persistent: true });
-        if (player.source == "db")
-            await model.Player.update({ last_update: seq.fn("NOW") }, { where: { api_id: player.id } });
-
-        return player;
-    }
-    async function playerRequestUpdateByName(name) {
-        return await playerRequestUpdate(name, undefined);
-    }
-    async function playerRequestUpdateById(id) {
-        return await playerRequestUpdate(undefined, id);
-    }
-
-    /* routes */
-    /* request a grab job */
-    app.get("/api/player/name/:name", async (req, res) => {
-        player = await playerRequestUpdateByName(req.params.name);
-        if (player == undefined) res.sendStatus(404);
-        else res.json(player);
-    });
-    app.get("/api/player/id/:id", async (req, res) => {
-        player = await playerRequestUpdateById(req.params.id);
-        if (player == undefined) res.sendStatus(404);
-        else res.json(player);
-    });
-
-    /* internal monitoring */
-    app.get("/", async (req, res) => {
-        res.sendFile(__dirname + "/index.html");
-    });
-
-
-    //io.emit(name, "done");
 })();
+
+server.listen(8880);
+app.use(express.static("assets"));
+app.use(bodyparser.json());
+
+// request a grab job
+function updatePlayer(name, region, last_match_created_date, id) {
+    last_match_created_date = last_match_created_date || new Date(value=0);
+
+    // add 1s, because createdAt-start <= x <= createdAt-end
+    // so without the +1s, we'd always get the last_match_created_date match back
+    last_match_created_date.setSeconds(last_match_created_date.getSeconds() + 1);
+
+    let payload = {
+        "region": region,
+        "params": {
+            "filter[playerIds]": id,
+            "filter[createdAt-start]": last_match_created_date.toISOString(),
+            "filter[gameMode]": "casual,ranked",
+            "sort": "-createdAt"
+        }
+    };
+    console.log("requesting update for", name, region);
+    return ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)),
+        { persistent: true });
+}
+
+// search for player name on all shards
+// send a notification for results and request updates
+async function searchPlayer(name) {
+    let found = false;
+    console.log("looking up", name);
+    await Promise.all(REGIONS.map(async (region) => {
+        let players = [];
+        while (true) {
+            console.log("looking up", name, region);
+            try {
+                // find players by name
+                players = await request({
+                    uri: "https://api.dc01.gamelockerapp.com/shards/" + region + "/players",
+                    headers: {
+                        "X-Title-Id": "semc-vainglory",
+                        "Authorization": MADGLORY_TOKEN
+                    },
+                    qs: {
+                        "filter[playerNames]": name
+                    },
+                    json: true,
+                    gzip: true
+                });
+                console.log("found", name, region);
+                break;
+            } catch (err) {
+                if (err.statusCode == 429) {
+                    console.log("rate limited, sleeping");
+                    await sleep(100);  // no return, no break => retry
+                } else if (err.statusCode != 404) console.error(err);
+                console.log("failed", name, region, err.statusCode);
+                return;
+            }
+        }
+        // players.length will be 1 in 99.9% of all cases
+        // - but this will cover the 0.01% too
+        //
+        // send to processor, so the player is in db
+        // no matter whether we find matches or not
+        await ch.sendToQueue("process", new Buffer(JSON.stringify(players)),
+            { persistent: true, type: "player" });
+
+        // request grab jobs
+        await Promise.all(players.data.map((p) =>
+            updatePlayer(p.attributes.name, p.attributes.shardId, undefined, p.id)));
+
+        found = true;
+    }));
+    // notify web
+    if (found)
+        await ch.publish("amq.topic", "player." + name,
+            new Buffer("search_success"));
+    else
+        await ch.publish("amq.topic", "player." + name,
+            new Buffer("search_fail"));
+}
+
+
+/* routes */
+// first time user
+app.post("/api/player/:name/search", (req, res) => {
+    searchPlayer(req.params.name);  // do not await, just fire
+    res.sendStatus(204);  // notifications will follow
+});
+// known user
+app.put("/api/player/:name/update", (req, res) => {
+    // PUT JSON in the body
+    updatePlayer(req.params.name, req.body.region,
+        req.body.last_match_created_date, req.body.id)
+    res.sendStatus(204);
+});
+
+/* internal monitoring */
+app.get("/", (req, res) => {
+    res.sendFile(__dirname + "/index.html");
+});
