@@ -24,10 +24,12 @@ var rabbit,
         try {
             rabbit = await amqp.connect(RABBITMQ_URI);
             ch = await rabbit.createChannel();
+            await ch.assertQueue("grab", {durable: true});
+            await ch.assertQueue("process", {durable: true});
             return;
         } catch (err) {
             console.error(err);
-            await sleep(1000);
+            await sleep(5000);
         }
     }
 })();
