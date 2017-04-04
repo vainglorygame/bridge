@@ -144,6 +144,7 @@ app.post("/api/player/:name/update", async (req, res) => {
     if (player == undefined) {
         console.log("player not found in db, searching instead", req.params.name);
         await searchPlayer(req.params.name);
+        res.sendStatus(204);
         return;
     }
     console.log("player in db, updating", req.params.name);
