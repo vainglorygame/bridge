@@ -4,10 +4,19 @@
         <title>Vainsocial backend status</title>
     </head>
     <body>
-        <form id="update-form">
-            <input type="text">
-            <input type="submit" value="Update">
-        </form>
+        <p>
+            <form id="update-form">
+                <input type="text" id="update-name">
+                <input type="checkbox" id="update-force">
+                <label for="update-force">Force refresh</label>
+                <input type="submit" value="Update">
+            </form>
+        </p>
+        <p>
+            <form id="update-random-form">
+                <input type="submit" value="Update random player">
+            </form>
+        </p>
 
         <ul id="updates"></ul>
 
@@ -23,66 +32,55 @@
                 // http fallback
                 client = webstomp.over(SockJS("http://localhost:15674/stomp"));
             }
-            // connect
-            client.connect("web", "web", () => {
-                $("#updates").append(
-                    $("<li>")
-                    .text("connected to socket")
-                    .css("color", "purple")
-                );
-            }, (err) => {
-                $("#updates").append(
-                    $("<li>")
-                    .text("error connecting to socket: " + JSON.stringify(err))
-                    .css("color", "red")
-                );
-            });
 
-            $("#update-form").submit((e) => {
-                let name = $("input:first").val();
+            let notif = (text, color) => {
+                $("#updates").append(
+                    $("<li>")
+                    .text(text)
+                    .css("color", color)
+                );
+            };
+
+            // connect
+            client.connect("web", "web", () => notif("connected to socket", "purple"),
+            (err) => notif("error connecting to socket: " + JSON.stringify(err), "red"));
+
+            let subscribe = (name) => {
                 // subscribe
                 client.subscribe("/topic/player." + name, (msg) => {
-                    $("#updates").append(
-                        $("<li>")
-                        .text(msg.body)
-                        .css("color", "grey")
-                    );
-
-                    if (msg.body == "search_fail")  {
-                        $("#updates").append(
-                            $("<li>")
-                            .text(name + ": not found")
-                            .css("color", "red")
-                        );
+                    notif(msg.body, "grey");
+                    switch (msg.body) {
+                        case "search_fail":
+                            notif(name + ": not found", "red"); break;
+                        case "search_success":
+                            notif(name + ": found", "green"); break;
+                        case "matches_update":
+                            notif(name + ": new match(es) available", "orange"); break;
+                        case "stats_update":
+                            notif(name + ": player profile stats updated", "orange"); break;
                     }
-                    if (msg.body == "search_success")  {
-                        $("#updates").append(
-                            $("<li>")
-                            .text(name + ": found")
-                            .css("color", "green")
-                        );
-                    }
-                    if (msg.body == "matches_update")  {
-                        $("#updates").append(
-                            $("<li>")
-                            .text(name + ": new match(es) available")
-                            .css("color", "orange")
-                        );
-                    }
-                    if (msg.body == "stats_update")  {
-                        $("#updates").append(
-                            $("<li>")
-                            .text(name + ": player profile stats updated")
-                            .css("color", "orange")
-                        );
-                    }
-
                     msg.ack();
                 }, {"ack": "client"});
+            }
 
-                // POST
-                $.post("/api/player/" + name + "/search");
+            $("#update-form").submit((e) => {
                 e.preventDefault();
+                let ign = $("#update-name").val(),
+                    force = $("#update-force").is(":checked");
+
+                subscribe(ign);
+                if (force) {
+                    $.post("/api/player/" + ign + "/search");
+                } else {
+                    $.post("/api/player/" + ign + "/update");
+                }
+            });
+            $("#update-random-form").submit((e) => {
+                e.preventDefault();
+                $.post("/api/player").done((resp) => {
+                    notif(resp.name + ": random user", "green");
+                    subscribe(resp.name);
+                });
             });
         </script>
     </body>

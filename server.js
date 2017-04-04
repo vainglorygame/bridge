@@ -2,19 +2,19 @@
 /* jshint esnext: true */
 
 var amqp = require("amqplib"),
+    Seq = require("sequelize"),
     request = require("request-promise"),
     express = require("express"),
-    bodyparser = require("body-parser"),
     http = require("http"),
     sleep = require("sleep-promise");
 
 var MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
+    DATABASE_URI = process.env.DATABASE_URI,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
     REGIONS = ["na", "eu", "sg", "sa", "ea"];
 if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
-var rabbit,
-    ch,
+var rabbit, ch, seq,
     app = express(),
     server = http.Server(app);
 
@@ -22,24 +22,25 @@ var rabbit,
 (async () => {
     while (true) {
         try {
+            seq = new Seq(DATABASE_URI, { logging: () => {} });
             rabbit = await amqp.connect(RABBITMQ_URI);
             ch = await rabbit.createChannel();
             await ch.assertQueue("grab", {durable: true});
             await ch.assertQueue("process", {durable: true});
-            return;
+            break;
         } catch (err) {
             console.error(err);
             await sleep(5000);
         }
     }
+    model = require("../orm/model")(seq, Seq);
 })();
 
 server.listen(8880);
 app.use(express.static("assets"));
-app.use(bodyparser.json());
 
 // request a grab job
-function updatePlayer(name, region, last_match_created_date, id) {
+function requestUpdate(name, region, last_match_created_date, id) {
     last_match_created_date = last_match_created_date || new Date(value=0);
 
     // add 1s, because createdAt-start <= x <= createdAt-end
@@ -106,7 +107,7 @@ async function searchPlayer(name) {
 
         // request grab jobs
         await Promise.all(players.data.map((p) =>
-            updatePlayer(p.attributes.name, p.attributes.shardId, undefined, p.id)));
+            requestUpdate(p.attributes.name, p.attributes.shardId, undefined, p.id)));
 
         found = true;
     }));
@@ -119,19 +120,41 @@ async function searchPlayer(name) {
             new Buffer("search_fail"));
 }
 
+// update a player based on db record
+function updatePlayer(player) {
+    player.last_update = new Date();
+    // set last_update and request an update job
+    return Promise.all([
+        player.save(),
+        requestUpdate(player.name, player.shard_id,
+            player.last_match_created_date, player.api_id)
+    ]);
+}
+
 
 /* routes */
-// first time user
+// force an update
 app.post("/api/player/:name/search", (req, res) => {
     searchPlayer(req.params.name);  // do not await, just fire
     res.sendStatus(204);  // notifications will follow
 });
-// known user
-app.put("/api/player/:name/update", (req, res) => {
-    // PUT JSON in the body
-    updatePlayer(req.params.name, req.body.region,
-        req.body.last_match_created_date, req.body.id)
+// update a known user
+app.post("/api/player/:name/update", async (req, res) => {
+    let player = await model.Player.findOne({ where: { name: req.params.name } });
+    if (player == undefined) {
+        console.log("player not found in db, searching instead", req.params.name);
+        await searchPlayer(req.params.name);
+        return;
+    }
+    console.log("player in db, updating", req.params.name);
+    await updatePlayer(player);
     res.sendStatus(204);
+});
+// update a random user
+app.post("/api/player", async (req, res) => {
+    let player = await model.Player.findOne({ order: [ Seq.fn("RAND") ] });
+    await updatePlayer(player);
+    res.json(player);
 });
 
 /* internal monitoring */
