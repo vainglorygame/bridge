@@ -5,6 +5,7 @@ var amqp = require("amqplib"),
     Seq = require("sequelize"),
     request = require("request-promise"),
     express = require("express"),
+    bodyParser = require("body-parser"),
     http = require("http"),
     sleep = require("sleep-promise");
 
@@ -38,6 +39,7 @@ var rabbit, ch, seq,
 
 server.listen(8880);
 app.use(express.static("assets"));
+app.use(bodyParser.json());
 
 // request a grab job
 function requestUpdate(name, region, last_match_created_date, id) {
@@ -156,6 +158,19 @@ app.post("/api/player", async (req, res) => {
     let player = await model.Player.findOne({ order: [ Seq.fn("RAND") ] });
     await updatePlayer(player);
     res.json(player);
+});
+
+// crunch data
+app.post("/api/stats/:dimension_on/update", async (req, res) => {
+    // forward JSON
+    let payload = {
+        dimension_on: req.params.dimension_on,
+        filter: req.body
+    };
+    console.log(payload);
+    await ch.sendToQueue("crunch", new Buffer(JSON.stringify(payload)),
+        { persistent: true });
+    res.sendStatus(204);
 });
 
 /* internal monitoring */
