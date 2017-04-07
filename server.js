@@ -60,7 +60,7 @@ function requestUpdate(name, region, last_match_created_date, id) {
     };
     console.log("requesting update for", name, region);
     return ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)),
-        { persistent: true });
+        { persistent: true, type: "matches" });
 }
 
 // search for player name on all shards
@@ -158,6 +158,19 @@ app.post("/api/player", async (req, res) => {
     let player = await model.Player.findOne({ order: [ Seq.fn("RAND") ] });
     await updatePlayer(player);
     res.json(player);
+});
+// download sample sets
+// (TODO download only samples since last update)
+app.post("/api/samples", async (req, res) => {
+    await ch.sendToQueue("grab", new Buffer(
+        JSON.stringify({
+            region: "eu",
+            params: {
+                sort: "-createdAt"
+            }
+        })),
+        { persistent: true, type: "samples" });
+    res.sendStatus(204);
 });
 
 // crunch data

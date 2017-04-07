@@ -18,6 +18,11 @@
             </form>
         </p>
         <p>
+            <form id="get-samples-form">
+                <input type="submit" value="Download latest samples">
+            </form>
+        </p>
+        <p>
             <form id="crunch-form">
                 <div>
                     <input type="text" id="crunch-on">
@@ -97,6 +102,12 @@
                 $.post("/api/player").done((resp) => {
                     notif(resp.name + ": random user", "green");
                     subscribe(resp.name);
+                });
+            });
+            $("#get-samples-form").submit((e) => {
+                e.preventDefault();
+                $.post("/api/samples").done((resp) => {
+                    notif("downloading samples", "green");
                 });
             });
 
