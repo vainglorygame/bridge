@@ -124,10 +124,10 @@ async function searchPlayer(name) {
 
 // update a player based on db record
 function updatePlayer(player) {
-    player.last_update = new Date();
     // set last_update and request an update job
     return Promise.all([
-        player.save(),
+        player.update({ last_update: seq.fn("NOW") },
+            { fields: ["last_update"] } ),
         requestUpdate(player.name, player.shard_id,
             player.last_match_created_date, player.api_id)
     ]);
