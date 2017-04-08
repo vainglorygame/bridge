@@ -125,11 +125,16 @@ async function searchPlayer(name) {
 // update a player based on db record
 function updatePlayer(player) {
     // set last_update and request an update job
+    // if last_update is null, we need that player's full history
+    let grabstart;
+    if (player.get("last_update") == null) grabstart = undefined;
+    else grabstart = player.get("last_match_created_date");
+
     return Promise.all([
         player.update({ last_update: seq.fn("NOW") },
             { fields: ["last_update"] } ),
         requestUpdate(player.name, player.shard_id,
-            player.last_match_created_date, player.api_id)
+            grabstart, player.api_id)
     ]);
 }
 
