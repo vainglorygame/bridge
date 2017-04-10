@@ -28,6 +28,7 @@ var rabbit, ch, seq,
             ch = await rabbit.createChannel();
             await ch.assertQueue("grab", {durable: true});
             await ch.assertQueue("process", {durable: true});
+            await ch.assertQueue("crunch", {durable: true});
             break;
         } catch (err) {
             console.error(err);
@@ -156,6 +157,19 @@ app.post("/api/player/:name/update", async (req, res) => {
     }
     console.log("player in db, updating", req.params.name);
     await updatePlayer(player);
+    res.sendStatus(204);
+});
+// crunch a known user
+app.post("/api/player/:name/crunch", async (req, res) => {
+    let player = await model.Player.findOne({ where: { name: req.params.name } });
+    if (player == undefined) {
+        console.log("player not found in db, won't crunch", req.params.name);
+        res.sendStatus(404);
+        return;
+    }
+    console.log("player in db, crunching", req.params.name);
+    await ch.sendToQueue("crunch", new Buffer(player.api_id),
+        { persistent: true, type: "player" });
     res.sendStatus(204);
 });
 // update a random user

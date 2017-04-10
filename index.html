@@ -24,19 +24,8 @@
         </p>
         <p>
             <form id="crunch-form">
-                <div>
-                    <input type="text" id="crunch-on">
-                    <label for="crunch-on">Table</label>
-                </div>
-                <div>
-                    <input type="text" id="crunch-filter">
-                    <label for="crunch-filter">Filter</label>
-                </div>
-                <div>
-                    <input type="text" id="crunch-value">
-                    <label for="crunch-value">Filter value</label>
-                </div>
-                <input type="submit" value="Crunch stats">
+                <input type="text" id="crunch-name">
+                <input type="submit" value="Crunch">
             </form>
         </p>
 
@@ -113,14 +102,9 @@
 
             $("#crunch-form").submit((e) => {
                 e.preventDefault();
-                let dimension_on = $("#crunch-on").val(),
-                    data = {};
-                data[$("#crunch-filter").val()] = $("#crunch-value").val();
-                $.ajax("/api/stats/" + dimension_on + "/update", {
-                    data: JSON.stringify(data),
-                    contentType: "application/json",
-                    type: "POST"
-                });
+                let ign = $("#crunch-name").val();
+                subscribe(ign);
+                $.post("/api/player/" + ign + "/crunch");
             });
         </script>
     </body>
