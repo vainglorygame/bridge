@@ -139,6 +139,38 @@ function updatePlayer(player) {
     ]);
 }
 
+// update a region's samples since samples_last_update
+async function updateSamples(region) {
+    let record = await model.Keys.findOne({
+        where: {
+            type: "samples_last_update",
+            key: region
+        }
+    }), last_update;
+    if (record == undefined)
+        last_update = (new Date(value=0)).toISOString();
+    else last_update = record.get("value");
+
+    console.log("updating samples", region, last_update);
+    await ch.sendToQueue("grab", new Buffer(
+        JSON.stringify({ region: region,
+            params: {
+                sort: "-createdAt",
+                "filter[createdAt-start]": last_update
+            }
+        })),
+        { persistent: true, type: "samples" });
+
+    last_update = (new Date()).toISOString();
+    if (record == null)
+        await model.Keys.create({
+            type: "samples_last_update",
+            key: region,
+            value: last_update
+        });
+    else
+        await record.update({ value: last_update });
+}
 
 /* routes */
 // force an update
@@ -179,16 +211,13 @@ app.post("/api/player", async (req, res) => {
     res.json(player);
 });
 // download sample sets
-// (TODO download only samples since last update)
+app.post("/api/samples/:region", async (req, res) => {
+    await updateSamples(req.params.region);
+    res.sendStatus(204);
+});
 app.post("/api/samples", async (req, res) => {
-    await ch.sendToQueue("grab", new Buffer(
-        JSON.stringify({
-            region: "eu",
-            params: {
-                sort: "-createdAt"
-            }
-        })),
-        { persistent: true, type: "samples" });
+    await Promise.all(REGIONS.map((region) =>
+        updateSamples(region)));
     res.sendStatus(204);
 });
 // crunch global stats
