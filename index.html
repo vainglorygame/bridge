@@ -28,6 +28,11 @@
                 <input type="submit" value="Crunch">
             </form>
         </p>
+        <p>
+            <form id="crunchglobal-form">
+                <input type="submit" value="Crunch global stats">
+            </form>
+        </p>
 
         <ul id="updates"></ul>
 
@@ -105,6 +110,10 @@
                 let ign = $("#crunch-name").val();
                 subscribe(ign);
                 $.post("/api/player/" + ign + "/crunch");
+            });
+            $("#crunchglobal-form").submit((e) => {
+                e.preventDefault();
+                $.post("/api/crunch");
             });
         </script>
     </body>

@@ -191,6 +191,13 @@ app.post("/api/samples", async (req, res) => {
         { persistent: true, type: "samples" });
     res.sendStatus(204);
 });
+// crunch global stats
+app.post("/api/crunch", async (req, res) => {
+    console.log("crunching global stats");
+    await ch.sendToQueue("crunch", new Buffer(""),
+        { persistent: true, type: "global" });
+    res.sendStatus(204);
+});
 
 // crunch data
 app.post("/api/stats/:dimension_on/update", async (req, res) => {
