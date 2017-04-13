@@ -42,8 +42,7 @@ server.listen(8880);
 app.use(express.static("assets"));
 app.use(bodyParser.json());
 
-// request a grab job
-function requestUpdate(name, region, last_match_created_date, id) {
+function grabPlayer(name, region, last_match_created_date, id) {
     last_match_created_date = last_match_created_date || new Date(value=0);
 
     // add 1s, because createdAt-start <= x <= createdAt-end
@@ -60,59 +59,78 @@ function requestUpdate(name, region, last_match_created_date, id) {
         }
     };
     console.log("requesting update for", name, region);
+
     return ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)),
         { persistent: true, type: "matches" });
 }
 
+// search for a player name in one region
+// request process for lifetime
+// return an array (JSONAPI response)
+async function searchPlayerInRegion(region, name, id) {
+    let players = [],
+        found = false;
+    while (true) {
+        console.log("searching in", region, name, id);
+        try {
+            // find players by name
+            let opts = {
+                uri: "https://api.dc01.gamelockerapp.com/shards/" + region + "/players",
+                headers: {
+                    "X-Title-Id": "semc-vainglory",
+                    "Authorization": MADGLORY_TOKEN
+                },
+                qs: {},
+                json: true,
+                gzip: true
+            };
+            // prefer player id over name
+            if (id == undefined) opts["qs"]["filter[playerNames]"] = name
+            else opts["qs"]["filter[playerIds]"] = id
+            players = await request(opts);
+
+            console.log("found", name, region);
+            found = true;
+            break;
+        } catch (err) {
+            if (err.statusCode == 429) {
+                console.log("rate limited, sleeping");
+                await sleep(100);  // no return, no break => retry
+            } else if (err.statusCode != 404) console.error(err);
+            if (err.statusCode != 429) {
+                console.log("failed", name, region, err.statusCode);
+                return;
+            }
+        }
+    }
+
+    if (!found) return [];
+
+    // players.length will be 1 in 99.9% of all cases
+    // - but this will cover the 0.01% too
+    //
+    // send to processor, so the player is in db
+    // no matter whether we find matches or not
+    await ch.sendToQueue("process", new Buffer(JSON.stringify(players.data)),
+        { persistent: true, type: "player" });
+
+    return players.data;
+}
+
 // search for player name on all shards
+// grab player(s)
 // send a notification for results and request updates
 async function searchPlayer(name) {
     let found = false;
-    console.log("looking up", name);
+    console.log("searching up", name);
     await Promise.all(REGIONS.map(async (region) => {
-        let players = [];
-        while (true) {
-            console.log("looking up", name, region);
-            try {
-                // find players by name
-                players = await request({
-                    uri: "https://api.dc01.gamelockerapp.com/shards/" + region + "/players",
-                    headers: {
-                        "X-Title-Id": "semc-vainglory",
-                        "Authorization": MADGLORY_TOKEN
-                    },
-                    qs: {
-                        "filter[playerNames]": name
-                    },
-                    json: true,
-                    gzip: true
-                });
-                console.log("found", name, region);
-                break;
-            } catch (err) {
-                if (err.statusCode == 429) {
-                    console.log("rate limited, sleeping");
-                    await sleep(100);  // no return, no break => retry
-                } else if (err.statusCode != 404) console.error(err);
-                if (err.statusCode != 429) {
-                    console.log("failed", name, region, err.statusCode);
-                    return;
-                }
-            }
-        }
-        // players.length will be 1 in 99.9% of all cases
-        // - but this will cover the 0.01% too
-        //
-        // send to processor, so the player is in db
-        // no matter whether we find matches or not
-        await ch.sendToQueue("process", new Buffer(JSON.stringify(players.data)),
-            { persistent: true, type: "player" });
+        let players = await searchPlayerInRegion(region, name, undefined);
+        if (players.length > 0)
+            found = true;
 
         // request grab jobs
-        await Promise.all(players.data.map((p) =>
-            requestUpdate(p.attributes.name, p.attributes.shardId, undefined, p.id)));
-
-        found = true;
+        await Promise.all(players.map((p) =>
+            grabPlayer(p.attributes.name, p.attributes.shardId, undefined, p.id)));
     }));
     // notify web
     if (found)
@@ -123,20 +141,28 @@ async function searchPlayer(name) {
             new Buffer("search_fail"));
 }
 
-// update a player based on db record
-function updatePlayer(player) {
+// update a player from API based on db record
+// & grab player
+async function updatePlayer(player) {
     // set last_update and request an update job
     // if last_update is null, we need that player's full history
     let grabstart;
     if (player.get("last_update") == null) grabstart = undefined;
     else grabstart = player.get("last_match_created_date");
 
-    return Promise.all([
-        player.update({ last_update: seq.fn("NOW") },
-            { fields: ["last_update"] } ),
-        requestUpdate(player.name, player.shard_id,
-            grabstart, player.api_id)
-    ]);
+    await player.update({ last_update: seq.fn("NOW") },
+        { fields: ["last_update"] } );
+
+    let players = await searchPlayerInRegion(
+        player.get("shard_id"), player.get("name"), player.get("api_id"));
+
+    // will be the same as `player` 99.9% of the time
+    // but not when the player changed their name
+    // search happened by ID, so we get only 1 player back
+    // but player.name != players[0].attributes.name
+    // (with a name change)
+    await Promise.all(players.map((p) =>
+        grabPlayer(p.attributes.name, p.attributes.shardId, grabstart, p.id)));
 }
 
 // update a region's samples since samples_last_update
@@ -174,21 +200,25 @@ async function updateSamples(region) {
 
 /* routes */
 // force an update
-app.post("/api/player/:name/search", (req, res) => {
+app.post("/api/player/:name/search", async (req, res) => {
     searchPlayer(req.params.name);  // do not await, just fire
     res.sendStatus(204);  // notifications will follow
 });
 // update a known user
+// flow:
+//   * get from db
+//   * update lifetime from `/players` via id, catch IGN changes
+//   * update from `/matches`
 app.post("/api/player/:name/update", async (req, res) => {
     let player = await model.Player.findOne({ where: { name: req.params.name } });
     if (player == undefined) {
         console.log("player not found in db, searching instead", req.params.name);
-        await searchPlayer(req.params.name);
+        searchPlayer(req.params.name);  // fire away
         res.sendStatus(204);
         return;
     }
     console.log("player in db, updating", req.params.name);
-    await updatePlayer(player);
+    updatePlayer(player);  // fire away
     res.sendStatus(204);
 });
 // crunch a known user
@@ -207,7 +237,7 @@ app.post("/api/player/:name/crunch", async (req, res) => {
 // update a random user
 app.post("/api/player", async (req, res) => {
     let player = await model.Player.findOne({ order: [ Seq.fn("RAND") ] });
-    await updatePlayer(player);
+    updatePlayer(player);  // do not await
     res.json(player);
 });
 // download sample sets
