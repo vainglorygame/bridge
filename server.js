@@ -60,8 +60,11 @@ function grabPlayer(name, region, last_match_created_date, id) {
     };
     console.log("requesting update for", name, region);
 
-    return ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)),
-        { persistent: true, type: "matches" });
+    return ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)), {
+        persistent: true,
+        type: "matches",
+        headers: { notify: "player." + name }
+    });
 }
 
 // search for a player name in one region
