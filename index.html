@@ -58,12 +58,15 @@
             };
 
             // connect
-            client.connect("web", "web", () => notif("connected to socket", "purple"),
-            (err) => notif("error connecting to socket: " + JSON.stringify(err), "red"));
+            client.connect("web", "web", () => {
+                notif("connected to socket", "purple");
+                client.subscribe("/topic/#", (msg) => {
+                    let name = "";
+                    if (msg.headers.destination.indexOf("player") != -1) 
+                        name = msg.headers.destination.substring(
+                            "/topic/player.".length);
+                    else name = "global";
 
-            let subscribe = (name) => {
-                // subscribe
-                client.subscribe("/topic/player." + name, (msg) => {
                     notif(msg.body, "grey");
                     switch (msg.body) {
                         case "search_fail":
@@ -77,14 +80,14 @@
                     }
                     msg.ack();
                 }, {"ack": "client"});
-            }
+            },
+            (err) => notif("error connecting to socket: " + JSON.stringify(err), "red"));
 
             $("#update-form").submit((e) => {
                 e.preventDefault();
                 let ign = $("#update-name").val(),
                     force = $("#update-force").is(":checked");
 
-                subscribe(ign);
                 if (force) {
                     $.post("/api/player/" + ign + "/search");
                 } else {
@@ -93,10 +96,7 @@
             });
             $("#update-random-form").submit((e) => {
                 e.preventDefault();
-                $.post("/api/player").done((resp) => {
-                    notif(resp.name + ": random user", "green");
-                    subscribe(resp.name);
-                });
+                $.post("/api/player");
             });
             $("#get-samples-form").submit((e) => {
                 e.preventDefault();
@@ -108,7 +108,6 @@
             $("#crunch-form").submit((e) => {
                 e.preventDefault();
                 let ign = $("#crunch-name").val();
-                subscribe(ign);
                 $.post("/api/player/" + ign + "/crunch");
             });
             $("#crunchglobal-form").submit((e) => {
