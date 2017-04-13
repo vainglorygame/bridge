@@ -106,6 +106,9 @@ async function searchPlayerInRegion(region, name, id) {
 
     if (!found) return [];
 
+    // notify web that data is being loaded
+    await ch.publish("amq.topic", "player." + name,
+        new Buffer("search_success"));
     // players.length will be 1 in 99.9% of all cases
     // - but this will cover the 0.01% too
     //
@@ -133,10 +136,7 @@ async function searchPlayer(name) {
             grabPlayer(p.attributes.name, p.attributes.shardId, undefined, p.id)));
     }));
     // notify web
-    if (found)
-        await ch.publish("amq.topic", "player." + name,
-            new Buffer("search_success"));
-    else
+    if (!found)
         await ch.publish("amq.topic", "player." + name,
             new Buffer("search_fail"));
 }
