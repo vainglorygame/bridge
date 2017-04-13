@@ -98,8 +98,8 @@ async function searchPlayerInRegion(region, name, id) {
                 await sleep(100);  // no return, no break => retry
             } else if (err.statusCode != 404) console.error(err);
             if (err.statusCode != 429) {
-                console.log("failed", name, region, err.statusCode);
-                return;
+                console.log("failed", region, name, id, err.statusCode);
+                return [];
             }
         }
     }
