@@ -77,6 +77,8 @@
                             notif(name + ": new match(es) available", "orange"); break;
                         case "stats_update":
                             notif(name + ": player profile stats updated", "orange"); break;
+                        case "points_update":
+                            notif(name + ": stats updated", "orange"); break;
                     }
                     msg.ack();
                 }, {"ack": "client"});
