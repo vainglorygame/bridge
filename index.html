@@ -73,6 +73,10 @@
                             notif(name + ": not found", "red"); break;
                         case "search_success":
                             notif(name + ": found", "green"); break;
+                        case "grab_fail":
+                            notif(name + ": grabbed everything", "grey"); break;
+                        case "grab_success":
+                            notif(name + ": grabbed a page", "green"); break;
                         case "matches_update":
                             notif(name + ": new match(es) available", "orange"); break;
                         case "stats_update":
