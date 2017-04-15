@@ -71,7 +71,8 @@ function grabPlayer(name, region, last_match_created_date, id) {
 // request process for lifetime
 // return an array (JSONAPI response)
 async function searchPlayerInRegion(region, name, id) {
-    let players = [],
+    let response,
+        players = [],
         found = false;
     while (true) {
         console.log("searching in", region, name, id);
@@ -85,17 +86,24 @@ async function searchPlayerInRegion(region, name, id) {
                 },
                 qs: {},
                 json: true,
-                gzip: true
+                gzip: true,
+                time: true,
+                forever: true,
+                strictSSL: true,
+                resolveWithFullResponse: true
             };
             // prefer player id over name
             if (id == undefined) opts["qs"]["filter[playerNames]"] = name
             else opts["qs"]["filter[playerIds]"] = id
-            players = await request(opts);
+            console.log("API request: %j", opts);
+            response = await request(opts);
+            players = response.body;
 
             console.log("found", name, region);
             found = true;
             break;
         } catch (err) {
+            response = err.response;
             if (err.statusCode == 429) {
                 console.log("rate limited, sleeping");
                 await sleep(100);  // no return, no break => retry
@@ -104,6 +112,9 @@ async function searchPlayerInRegion(region, name, id) {
                 console.log("failed", region, name, id, err.statusCode);
                 return [];
             }
+        } finally {
+            console.log("API response: status %s, connection start %s, connection end %s, ratelimit remaining: %s",
+                response.statusCode, response.timings.connect, response.timings.end, response.headers["x-ratelimit-remaining"]);
         }
     }
 
