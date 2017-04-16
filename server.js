@@ -160,10 +160,15 @@ async function updatePlayer(player) {
     // if last_update is null, we need that player's full history
     let grabstart;
     if (player.get("last_update") == null) grabstart = undefined;
-    else grabstart = player.get("last_match_created_date");
-
-    await player.update({ last_update: seq.fn("NOW") },
-        { fields: ["last_update"] } );
+    else {
+        let last_match = await model.Participant.findOne({
+            where: { player_api_id: player.get("api_id") },
+            attributes: ["created_at"],
+            order: [ [seq.col("created_at"), "DESC"] ]
+        });
+        if (last_match == null) grabstart = undefined;
+        else grabstart = last_match.get("created_at");
+    }
 
     let players = await searchPlayerInRegion(
         player.get("shard_id"), player.get("name"), player.get("api_id"));
