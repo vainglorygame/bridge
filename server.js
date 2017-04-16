@@ -39,7 +39,6 @@ var rabbit, ch, seq,
 
 server.listen(8880);
 app.use(express.static("assets"));
-app.use(bodyParser.json());
 
 function grabPlayer(name, region, last_match_created_date, id) {
     last_match_created_date = last_match_created_date || new Date(value=0);
