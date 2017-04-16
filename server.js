@@ -5,7 +5,6 @@ var amqp = require("amqplib"),
     Seq = require("sequelize"),
     request = require("request-promise"),
     express = require("express"),
-    bodyParser = require("body-parser"),
     http = require("http"),
     sleep = require("sleep-promise");
 
@@ -272,6 +271,7 @@ app.post("/api/crunch", async (req, res) => {
     res.sendStatus(204);
 });
 
+/*
 // crunch data
 app.post("/api/stats/:dimension_on/update", async (req, res) => {
     // forward JSON
@@ -284,6 +284,7 @@ app.post("/api/stats/:dimension_on/update", async (req, res) => {
         { persistent: true });
     res.sendStatus(204);
 });
+*/
 
 /* internal monitoring */
 app.get("/", (req, res) => {
