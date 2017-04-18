@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /* jshint esnext: true */
+"use strict";
 
-var amqp = require("amqplib"),
+const amqp = require("amqplib"),
     winston = require("winston"),
     Seq = require("sequelize"),
     request = require("request-promise"),
@@ -9,14 +10,13 @@ var amqp = require("amqplib"),
     http = require("http"),
     sleep = require("sleep-promise");
 
-var MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
+const MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     DATABASE_URI = process.env.DATABASE_URI,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
     REGIONS = ["na", "eu", "sg", "sa", "ea"];
 if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
-var rabbit, ch, seq,
-    app = express(),
+const app = express(),
     server = http.Server(app),
     logger = new (winston.Logger)({
         transports: [
@@ -27,6 +27,7 @@ var rabbit, ch, seq,
             })
         ]
     });
+let rabbit, ch, seq, model;
 
 // connect to broker, retrying forever
 (async () => {
@@ -51,13 +52,13 @@ server.listen(8880);
 app.use(express.static("assets"));
 
 function grabPlayer(name, region, last_match_created_date, id) {
-    last_match_created_date = last_match_created_date || new Date(value=0);
+    last_match_created_date = last_match_created_date || new Date(0);
 
     // add 1s, because createdAt-start <= x <= createdAt-end
     // so without the +1s, we'd always get the last_match_created_date match back
     last_match_created_date.setSeconds(last_match_created_date.getSeconds() + 1);
 
-    let payload = {
+    const payload = {
         "region": region,
         "params": {
             "filter[playerIds]": id,
@@ -181,7 +182,7 @@ async function updatePlayer(player) {
         else grabstart = last_match.get("created_at");
     }
 
-    let players = await searchPlayerInRegion(
+    const players = await searchPlayerInRegion(
         player.get("shard_id"), player.get("name"), player.get("api_id"));
 
     // will be the same as `player` 99.9% of the time
@@ -285,21 +286,6 @@ app.post("/api/crunch", async (req, res) => {
         { persistent: true, type: "global" });
     res.sendStatus(204);
 });
-
-/*
-// crunch data
-app.post("/api/stats/:dimension_on/update", async (req, res) => {
-    // forward JSON
-    let payload = {
-        dimension_on: req.params.dimension_on,
-        filter: req.body
-    };
-    console.log(payload);
-    await ch.sendToQueue("crunch", new Buffer(JSON.stringify(payload)),
-        { persistent: true });
-    res.sendStatus(204);
-});
-*/
 
 /* internal monitoring */
 app.get("/", (req, res) => {
