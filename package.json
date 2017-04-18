@@ -12,7 +12,8 @@
     "request-promise": "^4.2.0",
     "sequelize": "^3.30.4",
     "sleep-promise": "^2.0.0",
-    "webstomp-client": "^1.0.6"
+    "webstomp-client": "^1.0.6",
+    "winston": "^2.3.1"
   },
   "devDependencies": {},
   "scripts": {

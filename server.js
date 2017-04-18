@@ -2,6 +2,7 @@
 /* jshint esnext: true */
 
 var amqp = require("amqplib"),
+    winston = require("winston"),
     Seq = require("sequelize"),
     request = require("request-promise"),
     express = require("express"),
@@ -16,7 +17,16 @@ if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
 var rabbit, ch, seq,
     app = express(),
-    server = http.Server(app);
+    server = http.Server(app),
+    logger = new (winston.Logger)({
+        transports: [
+            new (winston.transports.Console)({
+                timestamp: () => Date.now(),
+                formatter: (options) => winston.config.colorize(options.level,
+`${new Date(options.timestamp()).toISOString()} ${options.level.toUpperCase()} ${(options.message? options.message:"")} ${(options.meta && Object.keys(options.meta).length? JSON.stringify(options.meta):"")}`)
+            })
+        ]
+    });
 
 // connect to broker, retrying forever
 (async () => {
@@ -30,7 +40,7 @@ var rabbit, ch, seq,
             await ch.assertQueue("crunch", {durable: true});
             break;
         } catch (err) {
-            console.error(err);
+            logger.error("Error connecting", err);
             await sleep(5000);
         }
     }
@@ -56,7 +66,7 @@ function grabPlayer(name, region, last_match_created_date, id) {
             "sort": "-createdAt"
         }
     };
-    console.log("requesting update for", name, region);
+    logger.info("requesting update for '%s' in '%s'", name, region);
 
     return ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)), {
         persistent: true,
@@ -73,7 +83,7 @@ async function searchPlayerInRegion(region, name, id) {
         players = [],
         found = false;
     while (true) {
-        console.log("searching in", region, name, id);
+        logger.info("searching '%s' ('%s') in '%s'", name, id, region);
         try {
             // find players by name
             let opts = {
@@ -93,25 +103,26 @@ async function searchPlayerInRegion(region, name, id) {
             // prefer player id over name
             if (id == undefined) opts["qs"]["filter[playerNames]"] = name
             else opts["qs"]["filter[playerIds]"] = id
-            console.log("API request: %j", opts);
+            logger.info("API request", {uri: opts.uri, qs: opts.qs});
             response = await request(opts);
             players = response.body;
 
-            console.log("found", name, region);
+            logger.info("found '%s' ('%s') in '%s'", name, id, region);
             found = true;
             break;
         } catch (err) {
             response = err.response;
             if (err.statusCode == 429) {
-                console.log("rate limited, sleeping");
+                logger.warn("rate limited, sleeping");
                 await sleep(100);  // no return, no break => retry
             } else if (err.statusCode != 404) console.error(err);
             if (err.statusCode != 429) {
-                console.log("failed", region, name, id, err.statusCode);
+                logger.warn("did not find '%s' ('%s') in '%s')", name, id, region,
+                    {uri: err.options.uri, qs: err.options.qs, error: err.response.body});
                 return [];
             }
         } finally {
-            console.log("API response: status %s, connection start %s, connection end %s, ratelimit remaining: %s",
+            logger.info("API response: status %s, connection start %s, connection end %s, ratelimit remaining: %s",
                 response.statusCode, response.timings.connect, response.timings.end, response.headers["x-ratelimit-remaining"]);
         }
     }
@@ -137,7 +148,7 @@ async function searchPlayerInRegion(region, name, id) {
 // send a notification for results and request updates
 async function searchPlayer(name) {
     let found = false;
-    console.log("searching up", name);
+    logger.info("searching '%s'", name);
     await Promise.all(REGIONS.map(async (region) => {
         let players = await searchPlayerInRegion(region, name, undefined);
         if (players.length > 0)
@@ -194,7 +205,7 @@ async function updateSamples(region) {
         last_update = (new Date(value=0)).toISOString();
     else last_update = record.get("value");
 
-    console.log("updating samples", region, last_update);
+    logger.info("updating samples in '%s' since %s", region, last_update);
     await ch.sendToQueue("grab", new Buffer(
         JSON.stringify({ region: region,
             params: {
@@ -229,12 +240,12 @@ app.post("/api/player/:name/search", async (req, res) => {
 app.post("/api/player/:name/update", async (req, res) => {
     let player = await model.Player.findOne({ where: { name: req.params.name } });
     if (player == undefined) {
-        console.log("player not found in db, searching instead", req.params.name);
+        logger.warn("player '%s' not found in db, searching instead", req.params.name);
         searchPlayer(req.params.name);  // fire away
         res.sendStatus(204);
         return;
     }
-    console.log("player in db, updating", req.params.name);
+    logger.info("player '%s' in db, updating", req.params.name);
     updatePlayer(player);  // fire away
     res.sendStatus(204);
 });
@@ -242,11 +253,11 @@ app.post("/api/player/:name/update", async (req, res) => {
 app.post("/api/player/:name/crunch", async (req, res) => {
     let player = await model.Player.findOne({ where: { name: req.params.name } });
     if (player == undefined) {
-        console.log("player not found in db, won't crunch", req.params.name);
+        logger.warn("player '%s' not found in db, won't crunch", req.params.name);
         res.sendStatus(404);
         return;
     }
-    console.log("player in db, crunching", req.params.name);
+    logger.info("player '%s' in db, crunching", req.params.name);
     await ch.sendToQueue("crunch", new Buffer(player.api_id),
         { persistent: true, type: "player" });
     res.sendStatus(204);
@@ -269,7 +280,7 @@ app.post("/api/samples", async (req, res) => {
 });
 // crunch global stats
 app.post("/api/crunch", async (req, res) => {
-    console.log("crunching global stats");
+    logger.info("crunching global stats");
     await ch.sendToQueue("crunch", new Buffer(""),
         { persistent: true, type: "global" });
     res.sendStatus(204);
