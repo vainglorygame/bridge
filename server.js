@@ -84,7 +84,7 @@ function grabPlayer(name, region, last_match_created_date, id, gameModes) {
     logger.info("requesting update", { name: name, region: region });
 
     // TODO make this more dynamic
-    const queue = (gameModes == "brawl") ? "process_brawl" : "process";
+    const queue = (gameModes == "brawl") ? "grab_brawl" : "grab";
     return ch.sendToQueue(queue, new Buffer(JSON.stringify(payload)), {
         persistent: true,
         type: "matches",
@@ -308,6 +308,13 @@ app.post("/api/samples/:region", async (req, res) => {
 app.post("/api/samples", async (req, res) => {
     await Promise.map(REGIONS, (region) =>
         updateSamples(region));
+    res.sendStatus(204);
+});
+// download Telemetry
+app.post("/api/match/:match/telemetry", async (req, res) => {
+    logger.info("requesting download for Telemetry", { api_id: req.params.api_id });
+    await ch.sendToQueue("grab", new Buffer(req.params.api_id),
+        { persistent: true, type: "telemetry" });
     res.sendStatus(204);
 });
 // crunch global stats
