@@ -9,6 +9,8 @@
                 <input type="text" id="update-name">
                 <input type="checkbox" id="update-force">
                 <label for="update-force">Force refresh</label>
+                <input type="checkbox" id="update-brawl">
+                <label for="update-brawl">Get Brawls</label>
                 <input type="submit" value="Update">
             </form>
         </p>
@@ -92,12 +94,16 @@
             $("#update-form").submit((e) => {
                 e.preventDefault();
                 let ign = $("#update-name").val(),
-                    force = $("#update-force").is(":checked");
+                    force = $("#update-force").is(":checked"),
+                    brawls = $("#update-brawl").is(":checked");
 
                 if (force) {
                     $.post("/api/player/" + ign + "/search");
                 } else {
-                    $.post("/api/player/" + ign + "/update");
+                    if (!brawls)
+                        $.post("/api/player/" + ign + "/update");
+                    else
+                        $.post("/api/player/" + ign + "/update-brawl");
                 }
             });
             $("#update-random-form").submit((e) => {

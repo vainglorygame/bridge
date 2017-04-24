@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /* jshint esnext: true */
 "use strict";
-
 const amqp = require("amqplib"),
+    Promise = require("bluebird"),
     winston = require("winston"),
     loggly = require("winston-loggly-bulk"),
     Seq = require("sequelize"),
@@ -13,6 +13,7 @@ const amqp = require("amqplib"),
 
 const MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     DATABASE_URI = process.env.DATABASE_URI,
+    DATABASE_BRAWL_URI = process.env.DATABASE_BRAWL_URI,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
     LOGGLY_TOKEN = process.env.LOGGLY_TOKEN,
     REGIONS = ["na", "eu", "sg", "sa", "ea"];
@@ -28,7 +29,7 @@ const app = express(),
             })
         ]
     });
-let rabbit, ch, seq, model;
+let rabbit, ch, seq, seqBrawl, model, modelBrawl;
 
 // loggly integration
 if (LOGGLY_TOKEN)
@@ -44,6 +45,7 @@ if (LOGGLY_TOKEN)
     while (true) {
         try {
             seq = new Seq(DATABASE_URI, { logging: () => {} });
+            seqBrawl = new Seq(DATABASE_BRAWL_URI, { logging: () => {} });
             rabbit = await amqp.connect(RABBITMQ_URI);
             ch = await rabbit.createChannel();
             await ch.assertQueue("grab", {durable: true});
@@ -56,30 +58,34 @@ if (LOGGLY_TOKEN)
         }
     }
     model = require("../orm/model")(seq, Seq);
+    modelBrawl = require("../orm/model")(seqBrawl, Seq);
 })();
 
 server.listen(8880);
 app.use(express.static("assets"));
 
-function grabPlayer(name, region, last_match_created_date, id) {
+function grabPlayer(name, region, last_match_created_date, id, gameModes) {
     last_match_created_date = last_match_created_date || new Date(0);
 
     // add 1s, because createdAt-start <= x <= createdAt-end
     // so without the +1s, we'd always get the last_match_created_date match back
     last_match_created_date.setSeconds(last_match_created_date.getSeconds() + 1);
 
-    const payload = {
+    const modes = (gameModes == "brawl") ? "blitz_pvp_ranked,casual_aral" : "casual,ranked",
+        payload = {
         "region": region,
         "params": {
             "filter[playerIds]": id,
             "filter[createdAt-start]": last_match_created_date.toISOString(),
-            "filter[gameMode]": "casual,ranked",
+            "filter[gameMode]": modes,
             "sort": "-createdAt"
         }
     };
     logger.info("requesting update", { name: name, region: region });
 
-    return ch.sendToQueue("grab", new Buffer(JSON.stringify(payload)), {
+    // TODO make this more dynamic
+    const queue = (gameModes == "brawl") ? "process_brawl" : "process";
+    return ch.sendToQueue(queue, new Buffer(JSON.stringify(payload)), {
         persistent: true,
         type: "matches",
         headers: { notify: "player." + name }
@@ -160,15 +166,16 @@ async function searchPlayerInRegion(region, name, id) {
 async function searchPlayer(name) {
     let found = false;
     logger.info("searching", { name: name });
-    await Promise.all(REGIONS.map(async (region) => {
+    await Promise.map(REGIONS, async (region) => {
         let players = await searchPlayerInRegion(region, name, undefined);
         if (players.length > 0)
             found = true;
 
         // request grab jobs
-        await Promise.all(players.map((p) =>
-            grabPlayer(p.attributes.name, p.attributes.shardId, undefined, p.id)));
-    }));
+        await Promise.map(players, (p) =>
+            grabPlayer(p.attributes.name, p.attributes.shardId,
+                undefined, p.id, "regular"));
+    });
     // notify web
     if (!found)
         await ch.publish("amq.topic", "player." + name,
@@ -177,14 +184,15 @@ async function searchPlayer(name) {
 
 // update a player from API based on db record
 // & grab player
-async function updatePlayer(player) {
+async function updatePlayer(player, gameModes) {
     // set last_update and request an update job
     // if last_update is null, we need that player's full history
     let grabstart;
     if (player.get("last_update") == null) grabstart = undefined;
     else {
-        let last_match = await model.Participant.findOne({
-            where: { player_api_id: player.get("api_id") },
+        const m = (gameModes == "brawl")? modelBrawl : model,
+            last_match = await m.Participant.findOne({
+            where: { player_api_id: player.get("api_id"), },
             attributes: ["created_at"],
             order: [ [seq.col("created_at"), "DESC"] ]
         });
@@ -200,8 +208,9 @@ async function updatePlayer(player) {
     // search happened by ID, so we get only 1 player back
     // but player.name != players[0].attributes.name
     // (with a name change)
-    await Promise.all(players.map((p) =>
-        grabPlayer(p.attributes.name, p.attributes.shardId, grabstart, p.id)));
+    await Promise.map(players, (p) =>
+        grabPlayer(p.attributes.name, p.attributes.shardId,
+            grabstart, p.id, gameModes));
 }
 
 // update a region's samples since samples_last_update
@@ -213,7 +222,7 @@ async function updateSamples(region) {
         }
     }), last_update;
     if (record == undefined)
-        last_update = (new Date(value=0)).toISOString();
+        last_update = (new Date(0)).toISOString();
     else last_update = record.get("value");
 
     logger.info("updating samples", { region: region, last_update: last_update });
@@ -257,7 +266,19 @@ app.post("/api/player/:name/update", async (req, res) => {
         return;
     }
     logger.info("player in db, updating", { name: req.params.name });
-    updatePlayer(player);  // fire away
+    updatePlayer(player, "regular");  // fire away
+    res.sendStatus(204);
+});
+// get brawls for a known user
+app.post("/api/player/:name/update-brawl", async (req, res) => {
+    let player = await model.Player.findOne({ where: { name: req.params.name } });
+    if (player == undefined) {
+        logger.error("player not found in db", { name: req.params.name });
+        res.sendStatus(404);
+        return;
+    }
+    logger.info("player in db, updating brawls", { name: req.params.name });
+    updatePlayer(player, "brawl");  // fire away
     res.sendStatus(204);
 });
 // crunch a known user
@@ -276,7 +297,7 @@ app.post("/api/player/:name/crunch", async (req, res) => {
 // update a random user
 app.post("/api/player", async (req, res) => {
     let player = await model.Player.findOne({ order: [ Seq.fn("RAND") ] });
-    updatePlayer(player);  // do not await
+    updatePlayer(player, "regular");  // do not await
     res.json(player);
 });
 // download sample sets
@@ -285,8 +306,8 @@ app.post("/api/samples/:region", async (req, res) => {
     res.sendStatus(204);
 });
 app.post("/api/samples", async (req, res) => {
-    await Promise.all(REGIONS.map((region) =>
-        updateSamples(region)));
+    await Promise.map(REGIONS, (region) =>
+        updateSamples(region));
     res.sendStatus(204);
 });
 // crunch global stats
