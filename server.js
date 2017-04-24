@@ -246,6 +246,50 @@ async function updateSamples(region) {
         await record.update({ value: last_update });
 }
 
+// wipe all points that meet the `where` condition and recrunch peux a peux
+async function crunchPlayer(api_id) {
+    logger.info("deleting all player points", { api_id: api_id });
+    await model.PlayerPoint.destroy({ where: { player_api_id: api_id } });
+    // get all participants for this player
+    const participations = await model.Participant.findAll({
+        attributes: ["api_id"],
+        where: { player_api_id: api_id } });
+    // send everything to cruncher
+    logger.info("sending participations to cruncher",
+        { length: participations.length });
+    await Promise.map(participations, async (p) =>
+        await ch.sendToQueue("crunch", new Buffer(p.api_id),
+            { persistent: true, type: "player" }));
+    // jobs with the type "player" won't be taken into account for global stats
+    // global stats would increase on every player refresh otherwise
+}
+
+async function crunchGlobal() {
+    logger.info("deleting all global and player points");
+    // see crunchPlayer
+    await model.GlobalPoint.destroy({ truncate: true });
+    await model.PlayerPoint.destroy({ truncate: true });
+    // don't load the whole Participant table at once into memory
+    const batchsize = 1000;
+    let offset = 0,
+        participations;
+    logger.info("loading all participations into cruncher");
+    do {
+        logger.info("loading more participations into cruncher",
+            { offset: offset, limit: batchsize });
+        participations = await model.Participant.findAll({
+            attributes: ["api_id"],
+            limit: batchsize,
+            offset: offset
+        });
+        await Promise.map(participations, async (p) =>
+            await ch.sendToQueue("crunch", new Buffer(p.api_id),
+                { persistent: true, type: "global" }));
+        offset += batchsize;
+    } while (participations.length == batchsize);
+    logger.info("done loading participations into cruncher");
+}
+
 /* routes */
 // force an update
 app.post("/api/player/:name/search", async (req, res) => {
@@ -281,17 +325,17 @@ app.post("/api/player/:name/update-brawl", async (req, res) => {
     updatePlayer(player, "brawl");  // fire away
     res.sendStatus(204);
 });
-// crunch a known user
+// re-crunch a known user
 app.post("/api/player/:name/crunch", async (req, res) => {
-    let player = await model.Player.findOne({ where: { name: req.params.name } });
+    const player = await model.Player.findOne({ where: { name: req.params.name } });
     if (player == undefined) {
-        logger.warn("player not found in db, won't crunch", { name: req.params.name });
+        logger.warn("player not found in db, won't recrunch",
+            { name: req.params.name });
         res.sendStatus(404);
         return;
     }
-    logger.info("player in db, crunching", { name: req.params.name });
-    await ch.sendToQueue("crunch", new Buffer(player.api_id),
-        { persistent: true, type: "player" });
+    logger.info("player in db, recrunching", { name: req.params.name });
+    crunchPlayer(player.api_id);  // fire away
     res.sendStatus(204);
 });
 // update a random user
@@ -317,15 +361,17 @@ app.post("/api/match/:match/telemetry", async (req, res) => {
         { persistent: true, type: "telemetry" });
     res.sendStatus(204);
 });
-// crunch global stats
+// re-crunch all global stats
 app.post("/api/crunch", async (req, res) => {
-    logger.info("crunching global stats");
-    await ch.sendToQueue("crunch", new Buffer(""),
-        { persistent: true, type: "global" });
+    crunchGlobal();  // fire away
     res.sendStatus(204);
 });
 
 /* internal monitoring */
 app.get("/", (req, res) => {
     res.sendFile(__dirname + "/index.html");
+});
+
+process.on("unhandledRejection", function(reason, promise) {
+    logger.error(reason);
 });
