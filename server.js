@@ -297,6 +297,9 @@ async function crunchGlobal(force=false) {
             { offset: offset, limit: batchsize });
         participations = await model.Participant.findAll({
             attributes: ["api_id", "id"],
+            where: {
+                id: { $gt: last_crunch_participant_id.value }
+            },
             limit: batchsize,
             offset: offset,
             order: [ ["id", "ASC"] ]
