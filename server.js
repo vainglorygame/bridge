@@ -16,6 +16,7 @@ const MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     DATABASE_BRAWL_URI = process.env.DATABASE_BRAWL_URI,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
     LOGGLY_TOKEN = process.env.LOGGLY_TOKEN,
+    BRAWL = process.env.BRAWL != "false",
     REGIONS = ["na", "eu", "sg", "sa", "ea"];
 if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
@@ -45,7 +46,8 @@ if (LOGGLY_TOKEN)
     while (true) {
         try {
             seq = new Seq(DATABASE_URI, { logging: () => {} });
-            seqBrawl = new Seq(DATABASE_BRAWL_URI, { logging: () => {} });
+            if (BRAWL)
+                seqBrawl = new Seq(DATABASE_BRAWL_URI, { logging: () => {} });
             rabbit = await amqp.connect(RABBITMQ_URI);
             ch = await rabbit.createChannel();
             await ch.assertQueue("grab", {durable: true});
@@ -58,7 +60,8 @@ if (LOGGLY_TOKEN)
         }
     }
     model = require("../orm/model")(seq, Seq);
-    modelBrawl = require("../orm/model")(seqBrawl, Seq);
+    if (BRAWL)
+        modelBrawl = require("../orm/model")(seqBrawl, Seq);
 })();
 
 server.listen(8880);
