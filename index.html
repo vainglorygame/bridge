@@ -32,6 +32,8 @@
         </p>
         <p>
             <form id="crunchglobal-form">
+                <input type="checkbox" id="crunch-force">
+                <label for="crunch-force">Force recrunch</label>
                 <input type="submit" value="Crunch global stats">
             </form>
         </p>
@@ -51,7 +53,7 @@
                 client = webstomp.over(SockJS("http://localhost:15674/stomp"));
             }
 
-            let notif = (text, color) => {
+            const notif = (text, color) => {
                 $("#updates").append(
                     $("<li>")
                     .text(text)
@@ -93,7 +95,7 @@
 
             $("#update-form").submit((e) => {
                 e.preventDefault();
-                let ign = $("#update-name").val(),
+                const ign = $("#update-name").val(),
                     force = $("#update-force").is(":checked"),
                     brawls = $("#update-brawl").is(":checked");
 
@@ -119,12 +121,16 @@
 
             $("#crunch-form").submit((e) => {
                 e.preventDefault();
-                let ign = $("#crunch-name").val();
+                const ign = $("#crunch-name").val();
                 $.post("/api/player/" + ign + "/crunch");
             });
             $("#crunchglobal-form").submit((e) => {
+                const force = $("#crunch-force").is(":checked");
                 e.preventDefault();
-                $.post("/api/crunch");
+                if (force)
+                    $.post("/api/recrunch");
+                else
+                    $.post("/api/crunch");
             });
         </script>
     </body>

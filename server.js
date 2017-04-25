@@ -132,7 +132,7 @@ async function searchPlayerInRegion(region, name, id) {
             if (err.statusCode == 429) {
                 logger.warn("rate limited, sleeping");
                 await sleep(100);  // no return, no break => retry
-            } else if (err.statusCode != 404) console.error(err);
+            } else if (err.statusCode != 404) logger.error(err);
             if (err.statusCode != 429) {
                 logger.warn("not found", name, id, region,
                     { name: name, id: id, region: region, uri: err.options.uri, qs: err.options.qs, error: err.response.body });
@@ -246,7 +246,7 @@ async function updateSamples(region) {
         await record.update({ value: last_update });
 }
 
-// wipe all points that meet the `where` condition and recrunch peux a peux
+// wipe all points that meet the `where` condition and recrunch
 async function crunchPlayer(api_id) {
     logger.info("deleting all player points", { api_id: api_id });
     await model.PlayerPoint.destroy({ where: { player_api_id: api_id } });
@@ -264,28 +264,48 @@ async function crunchPlayer(api_id) {
     // global stats would increase on every player refresh otherwise
 }
 
-async function crunchGlobal() {
-    logger.info("deleting all global and player points");
-    // see crunchPlayer
-    await model.GlobalPoint.destroy({ truncate: true });
-    await model.PlayerPoint.destroy({ truncate: true });
+// crunch (force = recrunch) global stats
+async function crunchGlobal(force=false) {
+    // get lcpid from keys table
+    let last_crunch_participant_id = (await model.Keys.findOrCreate({
+        where: {
+            type: "crunch",
+            key: "global_last_crunch_participant_id"
+        },
+        defaults: {
+            value: 0
+        }
+    }))[0];
+
+    if (force) {
+        // refresh everything
+        logger.info("deleting all global points");
+        await model.GlobalPoint.destroy({ truncate: true });
+        await last_crunch_participant_id.update({ value: 0 });
+    }
+
     // don't load the whole Participant table at once into memory
     const batchsize = 1000;
-    let offset = 0,
-        participations;
+    let offset = 0, participations;
+
     logger.info("loading all participations into cruncher");
     do {
         logger.info("loading more participations into cruncher",
             { offset: offset, limit: batchsize });
         participations = await model.Participant.findAll({
-            attributes: ["api_id"],
+            attributes: ["api_id", "id"],
             limit: batchsize,
-            offset: offset
+            offset: offset,
+            order: [ ["id", "ASC"] ]
         });
         await Promise.map(participations, async (p) =>
             await ch.sendToQueue("crunch", new Buffer(p.api_id),
                 { persistent: true, type: "global" }));
         offset += batchsize;
+        if (participations.length > 0)
+            await last_crunch_participant_id.update({
+                value: participations[participations.length-1].id
+            });
     } while (participations.length == batchsize);
     logger.info("done loading participations into cruncher");
 }
@@ -325,7 +345,7 @@ app.post("/api/player/:name/update-brawl", async (req, res) => {
     updatePlayer(player, "brawl");  // fire away
     res.sendStatus(204);
 });
-// re-crunch a known user
+// crunch a known user
 app.post("/api/player/:name/crunch", async (req, res) => {
     const player = await model.Player.findOne({ where: { name: req.params.name } });
     if (player == undefined) {
@@ -361,9 +381,14 @@ app.post("/api/match/:match/telemetry", async (req, res) => {
         { persistent: true, type: "telemetry" });
     res.sendStatus(204);
 });
-// re-crunch all global stats
+// crunch all global stats
 app.post("/api/crunch", async (req, res) => {
-    crunchGlobal();  // fire away
+    crunchGlobal(false);  // fire away
+    res.sendStatus(204);
+});
+// force updating all stats
+app.post("/api/recrunch", async (req, res) => {
+    crunchGlobal(true);  // fire away
     res.sendStatus(204);
 });
 
