@@ -11,6 +11,8 @@
                 <label for="update-force">Force refresh</label>
                 <input type="checkbox" id="update-brawl">
                 <label for="update-brawl">Get Brawls</label>
+                <input type="checkbox" id="update-tournament">
+                <label for="update-tournament">Get Privates (Tournaments)</label>
                 <input type="submit" value="Update">
             </form>
         </p>
@@ -105,15 +107,18 @@
                 e.preventDefault();
                 const ign = $("#update-name").val(),
                     force = $("#update-force").is(":checked"),
-                    brawls = $("#update-brawl").is(":checked");
+                    brawls = $("#update-brawl").is(":checked"),
+                    tournament = $("#update-tournament").is(":checked");
 
                 if (force) {
                     $.post("/api/player/" + ign + "/search");
                 } else {
-                    if (!brawls)
-                        $.post("/api/player/" + ign + "/update");
+                    if (brawls)
+                        $.post("/api/player/" + ign + "/update/brawl");
+                    else if (tournament)
+                        $.post("/api/player/" + ign + "/update/tournament");
                     else
-                        $.post("/api/player/" + ign + "/update-brawl");
+                        $.post("/api/player/" + ign + "/update");
                 }
             });
             $("#update-region-form").submit((e) => {

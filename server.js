@@ -75,29 +75,52 @@ if (LOGGLY_TOKEN)
 server.listen(8880);
 app.use(express.static("assets"));
 
+// convenience mapping
+// `category`: "regular", "brawl", "tournament"
+// TODO refactor this
+function gameModesForCategory(category) {
+    switch (category) {
+        case "regular": return "casual,ranked";
+        case "brawl": return "casual_aral,blitz_pvp_ranked";
+        case "tournament": return "private,private_party_draft_match";
+        default: logger.error("unsupported game mode category",
+            { category: category });
+    }
+}
+
+// convenience function to sort into the right grab queue
+function queueForCategory(category) {
+    switch (category) {
+        case "regular": return "grab";
+        case "brawl": return "grab_brawl";
+        case "tournament": return "grab_tournament";
+        default: logger.error("unsupported game mode category",
+            { category: category });
+    }
+}
+
 // request grab jobs for a player's matches
-async function grabPlayer(name, region, last_match_created_date, id, gameModes) {
+async function grabPlayer(name, region, last_match_created_date, id, category) {
     last_match_created_date = last_match_created_date || new Date(0);
 
     // add 1s, because createdAt-start <= x <= createdAt-end
     // so without the +1s, we'd always get the last_match_created_date match back
     last_match_created_date.setSeconds(last_match_created_date.getSeconds() + 1);
 
-    const modes = (gameModes == "brawl") ? "blitz_pvp_ranked,casual_aral" : "casual,ranked",
-        payload = {
+    const payload = {
         "region": region,
         "params": {
             "filter[playerIds]": id,
             "filter[createdAt-start]": last_match_created_date.toISOString(),
-            "filter[gameMode]": modes,
+            "filter[gameMode]": gameModesForCategory(category),
             "sort": "-createdAt"
         }
     };
     logger.info("requesting update", { name: name, region: region });
 
     // TODO make this more dynamic
-    const queue = (gameModes == "brawl") ? "grab_brawl" : "grab";
-    await ch.sendToQueue(queue, new Buffer(JSON.stringify(payload)), {
+    await ch.sendToQueue(queueForCategory(category),
+            new Buffer(JSON.stringify(payload)), {
         persistent: true,
         type: "matches",
         headers: { notify: "player." + name }
@@ -231,25 +254,27 @@ async function searchPlayer(name) {
 }
 
 // return the fitting db connection based on game mode
-// gameModes is an enum (brawl, regular, tournament)
-function databaseForMode(gameModes) {
-    if (gameModes == "brawl")
+// `category` is an enum (brawl, regular, tournament)
+function databaseForCategory(category) {
+    if (category == "brawl")
         return modelBrawl;
-    if (gameModes == "tournament")
+    if (category == "tournament")
         return modelTournament;
-    return model;
+    if (category == "regular")
+        return model;
+    logger.error("unsupported category", { category: category });
 }
 
 // update a player from API based on db record
 // & grab player
-async function updatePlayer(player, gameModes) {
+async function updatePlayer(player, category) {
     // set last_update and request an update job
     // if last_update is null, we need that player's full history
     let grabstart;
     if (player.get("last_update") == null) grabstart = undefined;
     else {
-        const last_match = await databaseForMode(gameModes).Participant.findOne({
-            where: { player_api_id: player.get("api_id"), },
+        const last_match = await databaseForCategory(category).Participant.findOne({
+            where: { player_api_id: player.get("api_id") },
             attributes: ["created_at"],
             order: [ [seq.col("created_at"), "DESC"] ]
         });
@@ -267,13 +292,13 @@ async function updatePlayer(player, gameModes) {
     // (with a name change)
     await Promise.map(players, (p) =>
         grabPlayer(p.attributes.name, p.attributes.shardId,
-            grabstart, p.id, gameModes));
+            grabstart, p.id, category));
 }
 
 // update a region from API based on db records
-async function updateRegion(region, gameModes) {
+async function updateRegion(region, category) {
     let grabstart;
-    const last_match = await databaseForMode(gameModes).Participant.findOne({
+    const last_match = await databaseForCategory(category).Participant.findOne({
         attributes: ["created_at"],
         order: [ [seq.col("created_at"), "DESC"] ]
     });
@@ -403,31 +428,19 @@ app.post("/api/player/:name/search", async (req, res) => {
 });
 // update a known user
 // flow:
-//   * get from db
+//   * get from db (depending on category, either regular, brawl or tourn)
 //   * update lifetime from `/players` via id, catch IGN changes
 //   * update from `/matches`
-app.post("/api/player/:name/update", async (req, res) => {
-    let player = await model.Player.findOne({ where: { name: req.params.name } });
-    if (player == undefined) {
-        logger.warn("player not found in db, searching instead", { name: req.params.name });
-        searchPlayer(req.params.name);  // fire away
-        res.sendStatus(204);
-        return;
-    }
-    logger.info("player in db, updating", { name: req.params.name });
-    updatePlayer(player, "regular");  // fire away
-    res.sendStatus(204);
-});
-// get brawls for a known user
-app.post("/api/player/:name/update-brawl", async (req, res) => {
-    let player = await model.Player.findOne({ where: { name: req.params.name } });
+app.post("/api/player/:name/update/:category*?", async (req, res) => {
+    const name = req.params.name, category = req.params.category || "regular",
+        player = await model.Player.findOne({ where: { name: req.params.name } });
     if (player == undefined) {
         logger.error("player not found in db", { name: req.params.name });
         res.sendStatus(404);
         return;
     }
-    logger.info("player in db, updating brawls", { name: req.params.name });
-    updatePlayer(player, "brawl");  // fire away
+    logger.info("player in db, updating", { name: name, category: category });
+    updatePlayer(player, category);  // fire away
     res.sendStatus(204);
 });
 // crunch a known user
