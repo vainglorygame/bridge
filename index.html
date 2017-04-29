@@ -37,6 +37,14 @@
                 <input type="submit" value="Crunch global stats">
             </form>
         </p>
+        <p>
+            <form id="update-region-form">
+                <select id="update-region-region">
+                    <option value="tournament-na">North America Tournament server</option>
+                </select>
+                <input type="submit" value="Update region">
+            </form>
+        </p>
 
         <ul id="updates"></ul>
 
@@ -107,6 +115,11 @@
                     else
                         $.post("/api/player/" + ign + "/update-brawl");
                 }
+            });
+            $("#update-region-form").submit((e) => {
+                e.preventDefault();
+                const region = $("#update-region-region").val();
+                $.post("/api/match/" + region + "/update");
             });
             $("#update-random-form").submit((e) => {
                 e.preventDefault();

@@ -14,9 +14,11 @@ const amqp = require("amqplib"),
 const MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     DATABASE_URI = process.env.DATABASE_URI,
     DATABASE_BRAWL_URI = process.env.DATABASE_BRAWL_URI,
+    DATABASE_TOURNAMENT_URI = process.env.DATABASE_TOURNAMENT_URI,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
     LOGGLY_TOKEN = process.env.LOGGLY_TOKEN,
     BRAWL = process.env.BRAWL != "false",
+    TOURNAMENT = process.env.TOURNAMENT != "false",
     REGIONS = ["na", "eu", "sg", "sa", "ea"];
 if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
@@ -30,7 +32,9 @@ const app = express(),
             })
         ]
     });
-let rabbit, ch, seq, seqBrawl, model, modelBrawl;
+let rabbit, ch,
+    seq, seqBrawl, seqTournament,
+    model, modelBrawl, modelTournament;
 
 // loggly integration
 if (LOGGLY_TOKEN)
@@ -48,6 +52,8 @@ if (LOGGLY_TOKEN)
             seq = new Seq(DATABASE_URI, { logging: () => {} });
             if (BRAWL)
                 seqBrawl = new Seq(DATABASE_BRAWL_URI, { logging: () => {} });
+            if (TOURNAMENT)
+                seqTournament = new Seq(DATABASE_TOURNAMENT_URI, { logging: () => {} });
             rabbit = await amqp.connect(RABBITMQ_URI);
             ch = await rabbit.createChannel();
             await ch.assertQueue("grab", {durable: true});
@@ -62,12 +68,15 @@ if (LOGGLY_TOKEN)
     model = require("../orm/model")(seq, Seq);
     if (BRAWL)
         modelBrawl = require("../orm/model")(seqBrawl, Seq);
+    if (TOURNAMENT)
+        modelTournament = require("../orm/model")(seqTournament, Seq);
 })();
 
 server.listen(8880);
 app.use(express.static("assets"));
 
-function grabPlayer(name, region, last_match_created_date, id, gameModes) {
+// request grab jobs for a player's matches
+async function grabPlayer(name, region, last_match_created_date, id, gameModes) {
     last_match_created_date = last_match_created_date || new Date(0);
 
     // add 1s, because createdAt-start <= x <= createdAt-end
@@ -88,11 +97,74 @@ function grabPlayer(name, region, last_match_created_date, id, gameModes) {
 
     // TODO make this more dynamic
     const queue = (gameModes == "brawl") ? "grab_brawl" : "grab";
-    return ch.sendToQueue(queue, new Buffer(JSON.stringify(payload)), {
+    await ch.sendToQueue(queue, new Buffer(JSON.stringify(payload)), {
         persistent: true,
         type: "matches",
         headers: { notify: "player." + name }
     });
+}
+
+// request grab jobs for a region's matches
+async function grabMatches(region, last_match_created_date) {
+    last_match_created_date = last_match_created_date || new Date(0);
+
+    // add 1s, because createdAt-start <= x <= createdAt-end
+    // so without the +1s, we'd always get the last_match_created_date match back
+    last_match_created_date.setSeconds(last_match_created_date.getSeconds() + 1);
+
+    const payload = {
+        "region": region,
+        "params": {
+            "filter[createdAt-start]": last_match_created_date.toISOString(),
+            "sort": "createdAt"
+        }
+    };
+    logger.info("requesting region update", { region: region });
+
+    // TODO expose as env vars
+    await ch.sendToQueue("grab_tournament", new Buffer(JSON.stringify(payload)), {
+        persistent: true,
+        type: "matches"
+    });
+}
+
+// return the body of an API request and log response times
+async function apiRequest(endpoint, shard, options) {
+    let response;
+    try {
+        // find players by name
+        const opts = {
+            uri: "https://api.dc01.gamelockerapp.com/shards/" + shard + "/" + endpoint,
+            headers: {
+                "X-Title-Id": "semc-vainglory",
+                "Authorization": MADGLORY_TOKEN
+            },
+            qs: options,
+            json: true,
+            gzip: true,
+            time: true,
+            forever: true,
+            strictSSL: true,
+            resolveWithFullResponse: true
+        };
+        logger.info("API request", { uri: opts.uri, qs: opts.qs });
+        response = await request(opts);
+        return response.body;
+    } catch (err) {
+        response = err.response;
+        if (err.statusCode == 429) {
+            logger.warn("rate limited, sleeping");
+            await sleep(100);  // no return, no break => retry
+        } else if (err.statusCode != 404) logger.error(err);
+        if (err.statusCode != 429) {
+            logger.warn("not found", { region: shard, uri: err.options.uri,
+                qs: err.options.qs, error: err.response.body });
+            return undefined;
+        }
+    } finally {
+        logger.info("API response",
+            { status: response.statusCode, connection_start: response.timings.connect, connection_end: response.timings.end, ratelimit_remaining: response.headers["x-ratelimit-remaining"] });
+    }
 }
 
 // search for a player name in one region
@@ -104,46 +176,18 @@ async function searchPlayerInRegion(region, name, id) {
         found = false;
     while (true) {
         logger.info("searching", { name: name, id: id, region: region });
-        try {
-            // find players by name
-            let opts = {
-                uri: "https://api.dc01.gamelockerapp.com/shards/" + region + "/players",
-                headers: {
-                    "X-Title-Id": "semc-vainglory",
-                    "Authorization": MADGLORY_TOKEN
-                },
-                qs: {},
-                json: true,
-                gzip: true,
-                time: true,
-                forever: true,
-                strictSSL: true,
-                resolveWithFullResponse: true
-            };
-            // prefer player id over name
-            if (id == undefined) opts["qs"]["filter[playerNames]"] = name
-            else opts["qs"]["filter[playerIds]"] = id
-            logger.info("API request", {uri: opts.uri, qs: opts.qs});
-            response = await request(opts);
-            players = response.body;
+        let options = {};
+        if (id == undefined) options["filter[playerNames]"] = name
+        else options["filter[playerIds]"] = id
 
+        players = await apiRequest("players", region, options);
+        if (players != undefined) {
             logger.info("found", { name: name, id: id, region: region });
             found = true;
             break;
-        } catch (err) {
-            response = err.response;
-            if (err.statusCode == 429) {
-                logger.warn("rate limited, sleeping");
-                await sleep(100);  // no return, no break => retry
-            } else if (err.statusCode != 404) logger.error(err);
-            if (err.statusCode != 429) {
-                logger.warn("not found", name, id, region,
-                    { name: name, id: id, region: region, uri: err.options.uri, qs: err.options.qs, error: err.response.body });
-                return [];
-            }
-        } finally {
-            logger.info("API response",
-                { status: response.statusCode, connection_start: response.timings.connect, connection_end: response.timings.end, ratelimit_remaining: response.headers["x-ratelimit-remaining"] });
+        } else {
+            logger.warn("not found", { name: name, id: id, region: region });
+            return [];
         }
     }
 
@@ -185,6 +229,16 @@ async function searchPlayer(name) {
             new Buffer("search_fail"));
 }
 
+// return the fitting db connection based on game mode
+// gameModes is an enum (brawl, regular, tournament)
+function databaseForMode(gameModes) {
+    if (gameModes == "brawl")
+        return modelBrawl;
+    if (gameModes == "tournament")
+        return modelTournament;
+    return model;
+}
+
 // update a player from API based on db record
 // & grab player
 async function updatePlayer(player, gameModes) {
@@ -193,8 +247,7 @@ async function updatePlayer(player, gameModes) {
     let grabstart;
     if (player.get("last_update") == null) grabstart = undefined;
     else {
-        const m = (gameModes == "brawl")? modelBrawl : model,
-            last_match = await m.Participant.findOne({
+        const last_match = await databaseForMode(gameModes).Participant.findOne({
             where: { player_api_id: player.get("api_id"), },
             attributes: ["created_at"],
             order: [ [seq.col("created_at"), "DESC"] ]
@@ -216,17 +269,23 @@ async function updatePlayer(player, gameModes) {
             grabstart, p.id, gameModes));
 }
 
+// update a region from API based on db records
+async function updateRegion(region, gameModes) {
+    let grabstart;
+    const last_match = await databaseForMode(gameModes).Participant.findOne({
+        attributes: ["created_at"],
+        order: [ [seq.col("created_at"), "DESC"] ]
+    });
+    if (last_match == null) grabstart = undefined;
+    else grabstart = last_match.get("created_at");
+
+    await grabMatches(region, grabstart);
+}
+
 // update a region's samples since samples_last_update
 async function updateSamples(region) {
-    let record = await model.Keys.findOne({
-        where: {
-            type: "samples_last_update",
-            key: region
-        }
-    }), last_update;
-    if (record == undefined)
-        last_update = (new Date(0)).toISOString();
-    else last_update = record.get("value");
+    const last_update = await getKey("samples_last_update",
+        region, (new Date(0)).toISOString());
 
     logger.info("updating samples", { region: region, last_update: last_update });
     await ch.sendToQueue("grab", new Buffer(
@@ -239,14 +298,7 @@ async function updateSamples(region) {
         { persistent: true, type: "samples" });
 
     last_update = (new Date()).toISOString();
-    if (record == null)
-        await model.Keys.create({
-            type: "samples_last_update",
-            key: region,
-            value: last_update
-        });
-    else
-        await record.update({ value: last_update });
+    await setKey("samples_last_update", region, last_update);
 }
 
 // wipe all points that meet the `where` condition and recrunch
@@ -270,21 +322,13 @@ async function crunchPlayer(api_id) {
 // crunch (force = recrunch) global stats
 async function crunchGlobal(force=false) {
     // get lcpid from keys table
-    let last_crunch_participant_id = (await model.Keys.findOrCreate({
-        where: {
-            type: "crunch",
-            key: "global_last_crunch_participant_id"
-        },
-        defaults: {
-            value: 0
-        }
-    }))[0];
+    const last_crunch_participant_id = await getKey("crunch", "global_last_crunch_participant_id", 0);
 
     if (force) {
         // refresh everything
         logger.info("deleting all global points");
         await model.GlobalPoint.destroy({ truncate: true });
-        await last_crunch_participant_id.update({ value: 0 });
+        await setKey("crunch", "global_last_crunch_participant_id", 0);
     }
 
     // don't load the whole Participant table at once into memory
@@ -309,14 +353,48 @@ async function crunchGlobal(force=false) {
                 { persistent: true, type: "global" }));
         offset += batchsize;
         if (participations.length > 0)
-            await last_crunch_participant_id.update({
-                value: participations[participations.length-1].id
-            });
+            await setKey("crunch", "global_last_crunch_participant_id",
+                participations[participations.length-1].id);
     } while (participations.length == batchsize);
     logger.info("done loading participations into cruncher");
 }
 
+// return an entry from keys db
+async function getKey(config, key, default_value) {
+    const record = await model.Keys.findOrCreate({
+        where: {
+            type: config,
+            key: region
+        },
+        defaults: { value: default_value }
+    });
+    return record.value;
+}
+
+// update an entry from keys db
+async function setKey(config, key, value) {
+    const record = await model.Keys.findOrCreate({
+        where: {
+            type: config,
+            key: region
+        },
+        defaults: { value: value }
+    });
+    record.update({ value: value });
+}
+
 /* routes */
+// update a region, used for tournament shard
+app.post("/api/match/:region/update", async (req, res) => {
+    const region = req.params.region;
+    if (["tournament-na"].indexOf(region) == -1) {
+        console.error("called with unsupported region", { region: region });
+        res.sendStatus(404);
+        return;
+    }
+    updateRegion(region, "tournament");  // fire away
+    res.sendStatus(204);
+});
 // force an update
 app.post("/api/player/:name/search", async (req, res) => {
     searchPlayer(req.params.name);  // do not await, just fire
