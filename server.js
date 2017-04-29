@@ -116,7 +116,8 @@ async function grabMatches(region, last_match_created_date) {
         "region": region,
         "params": {
             "filter[createdAt-start]": last_match_created_date.toISOString(),
-            "sort": "createdAt"
+            "sort": "createdAt",
+            "page[limit]": 5  // TODO maximum for `/matches`
         }
     };
     logger.info("requesting region update", { region: region });
