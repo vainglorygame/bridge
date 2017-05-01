@@ -21,7 +21,7 @@ const MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     TOURNAMENT = process.env.TOURNAMENT != "false",
     REGIONS = (process.env.REGIONS || "na,eu,sg,sa,ea").split(","),
     GRABSTART = process.env.GRABSTART || "2017-01-01T00:00:00Z",
-    BRAWL_RETENTION_DAYS = process.env.BRAWL_RETENTION_DAYS || 3;
+    BRAWL_RETENTION_DAYS = parseInt(process.env.BRAWL_RETENTION_DAYS) || 3;
 if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
 const app = express(),
