@@ -20,8 +20,17 @@ const MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     BRAWL = process.env.BRAWL != "false",
     TOURNAMENT = process.env.TOURNAMENT != "false",
     REGIONS = (process.env.REGIONS || "na,eu,sg,sa,ea").split(","),
+    TOURNAMENT_REGIONS = (process.env.TOURNAMENT_REGIONS || "tournament-na," +
+        "tournament-eu,tournament-sg,tournament-sa,tournament-ea").split(","),
     GRABSTART = process.env.GRABSTART || "2017-01-01T00:00:00Z",
-    BRAWL_RETENTION_DAYS = parseInt(process.env.BRAWL_RETENTION_DAYS) || 3;
+    BRAWL_RETENTION_DAYS = parseInt(process.env.BRAWL_RETENTION_DAYS) || 3,
+    PLAYER_PROCESS_QUEUE = process.env.PLAYER_PROCESS_QUEUE || "process",
+    GRAB_QUEUE = process.env.GRAB_QUEUE || "grab",
+    GRAB_BRAWL_QUEUE = process.env.GRAB_BRAWL_QUEUE || "grab_brawl",
+    GRAB_TOURNAMENT_QUEUE = process.env.GRAB_TOURNAMENT_QUEUE || "grab_tournament",
+    CRUNCH_QUEUE = process.env.CRUNCH_QUEUE || "crunch",
+    SAMPLE_QUEUE = process.env.SAMPLE_QUEUE || "sample",
+    CRUNCH_SHOVEL_SIZE = parseInt(process.env.CRUNCH_SHOVEL_SIZE) || 1000;
 if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
 const app = express(),
@@ -58,9 +67,12 @@ if (LOGGLY_TOKEN)
                 seqTournament = new Seq(DATABASE_TOURNAMENT_URI, { logging: () => {} });
             rabbit = await amqp.connect(RABBITMQ_URI);
             ch = await rabbit.createChannel();
-            await ch.assertQueue("grab", {durable: true});
-            await ch.assertQueue("process", {durable: true});
-            await ch.assertQueue("crunch", {durable: true});
+            await ch.assertQueue(GRAB_QUEUE, {durable: true});
+            await ch.assertQueue(GRAB_BRAWL_QUEUE, {durable: true});
+            await ch.assertQueue(GRAB_TOURNAMENT_QUEUE, {durable: true});
+            await ch.assertQueue(PLAYER_PROCESS_QUEUE, {durable: true});
+            await ch.assertQueue(CRUNCH_QUEUE, {durable: true});
+            await ch.assertQueue(SAMPLE_QUEUE, {durable: true});
             break;
         } catch (err) {
             logger.error("Error connecting", err);
@@ -93,9 +105,9 @@ function gameModesForCategory(category) {
 // convenience function to sort into the right grab queue
 function queueForCategory(category) {
     switch (category) {
-        case "regular": return "grab";
-        case "brawl": return "grab_brawl";
-        case "tournament": return "grab_tournament";
+        case "regular": return GRAB_QUEUE;
+        case "brawl": return GRAB_BRAWL_QUEUE;
+        case "tournament": return GRAB_TOURNAMENT_QUEUE;
         default: logger.error("unsupported game mode category",
             { category: category });
     }
@@ -141,8 +153,7 @@ async function grabMatches(region, last_match_created_date) {
     };
     logger.info("requesting region update", { region: region });
 
-    // TODO expose as env vars
-    await ch.sendToQueue("grab_tournament", new Buffer(JSON.stringify(payload)), {
+    await ch.sendToQueue(GRAB_TOURNAMENT_QUEUE, new Buffer(JSON.stringify(payload)), {
         persistent: true,
         type: "matches"
     });
@@ -221,7 +232,7 @@ async function searchPlayerInRegion(region, name, id) {
     //
     // send to processor, so the player is in db
     // no matter whether we find matches or not
-    await ch.sendToQueue("process", new Buffer(JSON.stringify(players.data)),
+    await ch.sendToQueue(PLAYER_PROCESS_QUEUE, new Buffer(JSON.stringify(players.data)),
         { persistent: true, type: "player" });
 
     return players.data;
@@ -326,7 +337,7 @@ async function updateSamples(region) {
         region, (new Date(0)).toISOString());
 
     logger.info("updating samples", { region: region, last_update: last_update });
-    await ch.sendToQueue("grab", new Buffer(
+    await ch.sendToQueue(GRAB_QUEUE, new Buffer(
         JSON.stringify({ region: region,
             params: {
                 sort: "-createdAt",
@@ -351,7 +362,7 @@ async function crunchPlayer(api_id) {
     logger.info("sending participations to cruncher",
         { length: participations.length });
     await Promise.map(participations, async (p) =>
-        await ch.sendToQueue("crunch", new Buffer(p.api_id),
+        await ch.sendToQueue(CRUNCH_QUEUE, new Buffer(p.api_id),
             { persistent: true, type: "player" }));
     // jobs with the type "player" won't be taken into account for global stats
     // global stats would increase on every player refresh otherwise
@@ -360,40 +371,41 @@ async function crunchPlayer(api_id) {
 // crunch (force = recrunch) global stats
 async function crunchGlobal(force=false) {
     // get lcpid from keys table
-    const last_crunch_participant_id = await getKey("crunch", "global_last_crunch_participant_id", 0);
+    let last_crunch_participant_id = await getKey("crunch", "global_last_crunch_participant_id", 0);
 
     if (force) {
         // refresh everything
         logger.info("deleting all global points");
         await model.GlobalPoint.destroy({ truncate: true });
-        await setKey("crunch", "global_last_crunch_participant_id", 0);
+        last_crunch_participant_id = await setKey("crunch",
+            "global_last_crunch_participant_id", 0);
     }
 
     // don't load the whole Participant table at once into memory
-    const batchsize = 1000;
     let offset = 0, participations;
 
-    logger.info("loading all participations into cruncher");
+    logger.info("loading all participations into cruncher",
+        { last_crunch_participant_id: last_crunch_participant_id });
     do {
-        logger.info("loading more participations into cruncher",
-            { offset: offset, limit: batchsize });
         participations = await model.Participant.findAll({
             attributes: ["api_id", "id"],
             where: {
-                id: { $gt: last_crunch_participant_id.value }
+                id: { $gt: last_crunch_participant_id }
             },
-            limit: batchsize,
+            limit: CRUNCH_SHOVEL_SIZE,
             offset: offset,
             order: [ ["id", "ASC"] ]
         });
         await Promise.map(participations, async (p) =>
-            await ch.sendToQueue("crunch", new Buffer(p.api_id),
+            await ch.sendToQueue(CRUNCH_QUEUE, new Buffer(p.api_id),
                 { persistent: true, type: "global" }));
-        offset += batchsize;
+        offset += CRUNCH_SHOVEL_SIZE;
         if (participations.length > 0)
             await setKey("crunch", "global_last_crunch_participant_id",
                 participations[participations.length-1].id);
-    } while (participations.length == batchsize);
+        logger.info("loading more participations into cruncher",
+            { offset: offset, limit: CRUNCH_SHOVEL_SIZE, size: participations.length });
+    } while (participations.length == CRUNCH_SHOVEL_SIZE);
     logger.info("done loading participations into cruncher");
 }
 
@@ -402,11 +414,11 @@ async function getKey(config, key, default_value) {
     const record = await model.Keys.findOrCreate({
         where: {
             type: config,
-            key: region
+            key: key
         },
         defaults: { value: default_value }
     });
-    return record.value;
+    return record[0].value;
 }
 
 // update an entry from keys db
@@ -414,18 +426,19 @@ async function setKey(config, key, value) {
     const record = await model.Keys.findOrCreate({
         where: {
             type: config,
-            key: region
+            key: key
         },
         defaults: { value: value }
     });
-    record.update({ value: value });
+    record[0].update({ value: value });
+    return value;
 }
 
 /* routes */
 // update a region, used for tournament shard
 app.post("/api/match/:region/update", async (req, res) => {
     const region = req.params.region;
-    if (["tournament-na"].indexOf(region) == -1) {
+    if (TOURNAMENT_REGIONS.indexOf(region) == -1) {
         console.error("called with unsupported region", { region: region });
         res.sendStatus(404);
         return;
@@ -487,7 +500,7 @@ app.post("/api/samples", async (req, res) => {
 // download Telemetry
 app.post("/api/match/:match/telemetry", async (req, res) => {
     logger.info("requesting download for Telemetry", { api_id: req.params.api_id });
-    await ch.sendToQueue("grab", new Buffer(req.params.api_id),
+    await ch.sendToQueue(SAMPLE_QUEUE, new Buffer(req.params.api_id),
         { persistent: true, type: "telemetry" });
     res.sendStatus(204);
 });
@@ -500,6 +513,9 @@ app.post("/api/crunch", async (req, res) => {
 app.post("/api/recrunch", async (req, res) => {
     crunchGlobal(true);  // fire away
     res.sendStatus(204);
+});
+// update all matches for a Toornament
+app.post("/api/toornament/:name/update", async (req, res) => {
 });
 
 /* internal monitoring */
