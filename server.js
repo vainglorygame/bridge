@@ -19,7 +19,9 @@ const MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     LOGGLY_TOKEN = process.env.LOGGLY_TOKEN,
     BRAWL = process.env.BRAWL != "false",
     TOURNAMENT = process.env.TOURNAMENT != "false",
-    REGIONS = ["na", "eu", "sg", "sa", "ea"];
+    REGIONS = (process.env.REGIONS || "na,eu,sg,sa,ea").split(","),
+    GRABSTART = process.env.GRABSTART || "2017-01-01T00:00:00Z",
+    BRAWL_RETENTION_DAYS = process.env.BRAWL_RETENTION_DAYS || 3;
 if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
 const app = express(),
@@ -101,17 +103,11 @@ function queueForCategory(category) {
 
 // request grab jobs for a player's matches
 async function grabPlayer(name, region, last_match_created_date, id, category) {
-    last_match_created_date = last_match_created_date || new Date(0);
-
-    // add 1s, because createdAt-start <= x <= createdAt-end
-    // so without the +1s, we'd always get the last_match_created_date match back
-    last_match_created_date.setSeconds(last_match_created_date.getSeconds() + 1);
-
     const payload = {
         "region": region,
         "params": {
             "filter[playerIds]": id,
-            "filter[createdAt-start]": last_match_created_date.toISOString(),
+            "filter[createdAt-start]": last_match_created_date,  // ISO8601 string
             "filter[gameMode]": gameModesForCategory(category),
             "sort": "-createdAt"
         }
@@ -265,22 +261,38 @@ function databaseForCategory(category) {
     logger.error("unsupported category", { category: category });
 }
 
+// return a default `createdAt-start` based on game mode
+function defaultGrabstartForCategory(category) {
+    if (category == "brawl") {
+        let past = new Date();
+        past.setDate(past.getDate() - BRAWL_RETENTION_DAYS);
+        return past.toISOString();  // minimum
+    }
+    if (category == "tournament")
+        return "2017-01-01T00:00:00Z";  // all
+    if (category == "regular")
+        return GRABSTART;  // as via env var
+}
+
 // update a player from API based on db record
 // & grab player
 async function updatePlayer(player, category) {
     // set last_update and request an update job
     // if last_update is null, we need that player's full history
     let grabstart;
-    if (player.get("last_update") == null) grabstart = undefined;
-    else {
+    if (player.get("last_update") != null) {
         const last_match = await databaseForCategory(category).Participant.findOne({
             where: { player_api_id: player.get("api_id") },
             attributes: ["created_at"],
             order: [ [seq.col("created_at"), "DESC"] ]
         });
-        if (last_match == null) grabstart = undefined;
-        else grabstart = last_match.get("created_at");
+        if (last_match != null) grabstart = last_match.get("created_at");
     }
+    if (grabstart == undefined) grabstart = defaultGrabstartForCategory(category);
+    else
+        // add 1s, because createdAt-start <= x <= createdAt-end
+        // so without the +1s, we'd always get the last_match_created_date match back
+        grabstart.setSeconds(grabstart.getSeconds() + 1);
 
     const players = await searchPlayerInRegion(
         player.get("shard_id"), player.get("name"), player.get("api_id"));
