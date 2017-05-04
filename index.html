@@ -33,6 +33,12 @@
             </form>
         </p>
         <p>
+            <form id="crunch-team-form">
+                <input type="text" id="crunch-team">
+                <input type="submit" value="Crunch Team by ID">
+            </form>
+        </p>
+        <p>
             <form id="crunchglobal-form">
                 <input type="checkbox" id="crunch-force">
                 <label for="crunch-force">Force recrunch</label>
@@ -145,6 +151,11 @@
                 e.preventDefault();
                 const ign = $("#crunch-name").val();
                 $.post("/api/player/" + ign + "/crunch");
+            });
+            $("#crunch-team-form").submit((e) => {
+                e.preventDefault();
+                const id = $("#crunch-team").val();
+                $.post("/api/team/" + id + "/crunch");
             });
             $("#crunchglobal-form").submit((e) => {
                 const force = $("#crunch-force").is(":checked");

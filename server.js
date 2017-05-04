@@ -368,6 +368,13 @@ async function crunchPlayer(api_id) {
     // global stats would increase on every player refresh otherwise
 }
 
+// reset fame and crunch
+// TODO: incremental crunch possible?
+async function crunchTeam(team_id) {
+    await ch.sendToQueue(CRUNCH_QUEUE, new Buffer(team_id),
+        { persistent: true, type: "team" });
+}
+
 // crunch (force = recrunch) global stats
 async function crunchGlobal(force=false) {
     // get lcpid from keys table
@@ -472,13 +479,25 @@ app.post("/api/player/:name/update/:category*?", async (req, res) => {
 app.post("/api/player/:name/crunch", async (req, res) => {
     const player = await model.Player.findOne({ where: { name: req.params.name } });
     if (player == undefined) {
-        logger.warn("player not found in db, won't recrunch",
+        logger.error("player not found in db, won't recrunch",
             { name: req.params.name });
         res.sendStatus(404);
         return;
     }
     logger.info("player in db, recrunching", { name: req.params.name });
     crunchPlayer(player.api_id);  // fire away
+    res.sendStatus(204);
+});
+// crunch a known team
+app.post("/api/team/:id/crunch", async (req, res) => {
+    if (await model.Team.findOne({ where: { id: req.params.id } }) == undefined) {
+        logger.error("team not found in db, won't recrunch",
+            { name: req.params.id });
+        res.sendStatus(404);
+        return;
+    }
+    logger.info("team in db, recrunching", { name: req.params.id });
+    crunchTeam(req.params.id);  // fire away
     res.sendStatus(204);
 });
 // update a random user
