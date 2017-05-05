@@ -252,7 +252,7 @@ async function searchPlayer(name) {
         // request grab jobs
         await Promise.map(players, (p) =>
             grabPlayer(p.attributes.name, p.attributes.shardId,
-                undefined, p.id, "regular"));
+                defaultGrabstartForCategory("regular"), p.id, "regular"));
     });
     // notify web
     if (!found)
