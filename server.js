@@ -255,9 +255,11 @@ async function searchPlayer(name) {
                 defaultGrabstartForCategory("regular"), p.id, "regular"));
     });
     // notify web
-    if (!found)
+    if (!found) {
+        logger.info("search failed", { name: name });
         await ch.publish("amq.topic", "player." + name,
             new Buffer("search_fail"));
+    }
 }
 
 // return the fitting db connection based on game mode
