@@ -194,7 +194,7 @@ async function apiRequest(endpoint, shard, options) {
         }
     } finally {
         logger.info("API response",
-            { status: response.statusCode, connection_start: response.timings.connect, connection_end: response.timings.end, ratelimit_remaining: response.headers["x-ratelimit-remaining"] });
+            { status: response.statusCode, connection_start: response.timings.connect, connection_end: response.timings.end, ratelimit_remaining: parseInt(response.headers["x-ratelimit-remaining"]) });
     }
 }
 
