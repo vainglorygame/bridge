@@ -9,10 +9,10 @@ const amqp = require("amqplib"),
     request = require("request-promise"),
     express = require("express"),
     http = require("http"),
-    sleep = require("sleep-promise");
+    sleep = require("sleep-promise"),
+    api = require("../orm/api");
 
-const MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
-    DATABASE_URI = process.env.DATABASE_URI,
+const DATABASE_URI = process.env.DATABASE_URI,
     DATABASE_BRAWL_URI = process.env.DATABASE_BRAWL_URI,
     DATABASE_TOURNAMENT_URI = process.env.DATABASE_TOURNAMENT_URI,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
@@ -31,7 +31,6 @@ const MADGLORY_TOKEN = process.env.MADGLORY_TOKEN,
     CRUNCH_QUEUE = process.env.CRUNCH_QUEUE || "crunch",
     SAMPLE_QUEUE = process.env.SAMPLE_QUEUE || "sample",
     CRUNCH_SHOVEL_SIZE = parseInt(process.env.CRUNCH_SHOVEL_SIZE) || 1000;
-if (MADGLORY_TOKEN == undefined) throw "Need an API token";
 
 const app = express(),
     server = http.Server(app),
@@ -126,7 +125,6 @@ async function grabPlayer(name, region, last_match_created_date, id, category) {
     };
     logger.info("requesting update", { name: name, region: region });
 
-    // TODO make this more dynamic
     await ch.sendToQueue(queueForCategory(category),
             new Buffer(JSON.stringify(payload)), {
         persistent: true,
@@ -159,83 +157,38 @@ async function grabMatches(region, last_match_created_date) {
     });
 }
 
-// return the body of an API request and log response times
-async function apiRequest(endpoint, shard, options) {
-    let response;
-    try {
-        // find players by name
-        const opts = {
-            uri: "https://api.dc01.gamelockerapp.com/shards/" + shard + "/" + endpoint,
-            headers: {
-                "X-Title-Id": "semc-vainglory",
-                "Authorization": MADGLORY_TOKEN
-            },
-            qs: options,
-            json: true,
-            gzip: true,
-            time: true,
-            forever: true,
-            strictSSL: true,
-            resolveWithFullResponse: true
-        };
-        logger.info("API request", { uri: opts.uri, qs: opts.qs });
-        response = await request(opts);
-        return response.body;
-    } catch (err) {
-        response = err.response;
-        if (err.statusCode == 429) {
-            logger.warn("rate limited, sleeping");
-            await sleep(100);  // no return, no break => retry
-        } else if (err.statusCode != 404) logger.error(err);
-        if (err.statusCode != 429) {
-            logger.warn("not found", { region: shard, uri: err.options.uri,
-                qs: err.options.qs, error: err.response.body });
-            return undefined;
-        }
-    } finally {
-        logger.info("API response",
-            { status: response.statusCode, connection_start: response.timings.connect, connection_end: response.timings.end, ratelimit_remaining: parseInt(response.headers["x-ratelimit-remaining"]) });
-    }
-}
-
 // search for a player name in one region
 // request process for lifetime
 // return an array (JSONAPI response)
 async function searchPlayerInRegion(region, name, id) {
-    let response,
-        players = [],
-        found = false;
-    while (true) {
-        logger.info("searching", { name: name, id: id, region: region });
-        let options = {};
-        if (id == undefined) options["filter[playerNames]"] = name
-        else options["filter[playerIds]"] = id
+    logger.info("searching", { name: name, id: id, region: region });
+    let options = {};
+    if (id == undefined) options["filter[playerNames]"] = name
+    else options["filter[playerIds]"] = id
 
-        players = await apiRequest("players", region, options);
-        if (players != undefined) {
+    // players.length and page length will be 1 in 99.9999% of all cases
+    // - but just in case.
+    const players = await Promise.map(await api.requests("players",
+        region, options, logger),
+        async (player) => {
             logger.info("found", { name: name, id: id, region: region });
-            found = true;
-            break;
-        } else {
-            logger.warn("not found", { name: name, id: id, region: region });
-            return [];
+            // notify web that data is being loaded
+            await ch.publish("amq.topic", "player." + name,
+                new Buffer("search_success"));
+            // send to processor, so the player is in db
+            // no matter whether we find matches or not
+            await ch.sendToQueue(PLAYER_PROCESS_QUEUE,
+                new Buffer(JSON.stringify(player)), {
+                    persistent: true, type: "player",
+                    headers: { notify: "player." + player.name }
+                });
+            return player;
         }
-    }
+    );
+    if (players.length == 0)
+        logger.warn("not found", { name: name, id: id, region: region });
 
-    if (!found) return [];
-
-    // notify web that data is being loaded
-    await ch.publish("amq.topic", "player." + name,
-        new Buffer("search_success"));
-    // players.length will be 1 in 99.9% of all cases
-    // - but this will cover the 0.01% too
-    //
-    // send to processor, so the player is in db
-    // no matter whether we find matches or not
-    await ch.sendToQueue(PLAYER_PROCESS_QUEUE, new Buffer(JSON.stringify(players.data)),
-        { persistent: true, type: "player" });
-
-    return players.data;
+    return players;
 }
 
 // search for player name on all shards
@@ -245,13 +198,12 @@ async function searchPlayer(name) {
     let found = false;
     logger.info("searching", { name: name });
     await Promise.map(REGIONS, async (region) => {
-        let players = await searchPlayerInRegion(region, name, undefined);
-        if (players.length > 0)
-            found = true;
+        const players = await searchPlayerInRegion(region, name, undefined);
+        if (players.length > 0) found = true;
 
         // request grab jobs
         await Promise.map(players, (p) =>
-            grabPlayer(p.attributes.name, p.attributes.shardId,
+            grabPlayer(p.name, p.shardId,
                 defaultGrabstartForCategory("regular"), p.id, "regular"));
     });
     // notify web
@@ -315,8 +267,8 @@ async function updatePlayer(player, category) {
     // search happened by ID, so we get only 1 player back
     // but player.name != players[0].attributes.name
     // (with a name change)
-    await Promise.map(players, (p) =>
-        grabPlayer(p.attributes.name, p.attributes.shardId,
+    await Promise.map(players, async (p) =>
+        await grabPlayer(p.name, p.shardId,
             grabstart, p.id, category));
 }
 
@@ -544,6 +496,6 @@ app.get("/", (req, res) => {
     res.sendFile(__dirname + "/index.html");
 });
 
-process.on("unhandledRejection", function(reason, promise) {
-    logger.error(reason);
+process.on("unhandledRejection", err => {
+    logger.error("Uncaught Promise Error:", err.stack);
 });
