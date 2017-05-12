@@ -245,14 +245,8 @@ async function updatePlayer(player, category) {
     // set last_update and request an update job
     // if last_update is null, we need that player's full history
     let grabstart;
-    if (player.get("last_update") != null) {
-        const last_match = await databaseForCategory(category).Participant.findOne({
-            where: { player_api_id: player.get("api_id") },
-            attributes: ["created_at"],
-            order: [ [seq.col("created_at"), "DESC"] ]
-        });
-        if (last_match != null) grabstart = last_match.get("created_at");
-    }
+    if (player.get("last_update") != null)
+        grabstart = player.get("created_at");  // TODO add 1s here!!!
     if (grabstart == undefined) grabstart = defaultGrabstartForCategory(category);
     else
         // add 1s, because createdAt-start <= x <= createdAt-end
