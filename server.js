@@ -271,6 +271,7 @@ async function updateRegion(region, category) {
     let grabstart;
     const last_match = await databaseForCategory(category).Participant.findOne({
         attributes: ["created_at"],
+        where: { shard_id: region },
         order: [ [seq.col("created_at"), "DESC"] ]
     });
     if (last_match == null) grabstart = undefined;
