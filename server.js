@@ -467,9 +467,20 @@ app.post("/api/samples", async (req, res) => {
 });
 // download Telemetry
 app.post("/api/match/:match/telemetry", async (req, res) => {
-    logger.info("requesting download for Telemetry", { api_id: req.params.api_id });
-    await ch.sendToQueue(SAMPLE_QUEUE, new Buffer(req.params.api_id),
-        { persistent: true, type: "telemetry" });
+    logger.info("requesting download for Telemetry", { api_id: req.params.match });
+    const asset = await model.Asset.findOne({ where: {
+        match_api_id: req.params.match
+    } });
+    if (asset == undefined) {
+        logger.error("could not find any assets for match",
+            { api_id: req.params.match });
+        res.sendStatus(404);
+        return;
+    }
+    await ch.sendToQueue(SAMPLE_QUEUE, new Buffer(JSON.stringify(asset.url)), {
+        persistent: true, type: "telemetry",
+        headers: { match_api_id: req.params.match }
+    });
     res.sendStatus(204);
 });
 // crunch all global stats
