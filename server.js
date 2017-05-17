@@ -120,7 +120,7 @@ async function grabPlayer(name, region, last_match_created_date, id, category) {
             "filter[playerIds]": id,
             "filter[createdAt-start]": last_match_created_date,  // ISO8601 string
             "filter[gameMode]": gameModesForCategory(category),
-            "sort": "-createdAt"
+            "sort": "createdAt"
         }
     };
     logger.info("requesting update", { name: name, region: region });
@@ -289,7 +289,7 @@ async function updateSamples(region) {
     await ch.sendToQueue(GRAB_QUEUE, new Buffer(
         JSON.stringify({ region: region,
             params: {
-                sort: "-createdAt",
+                sort: "createdAt",
                 "filter[createdAt-start]": last_update
             }
         })),
