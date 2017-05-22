@@ -299,14 +299,24 @@ async function updateSamples(region) {
     await setKey("samples_last_update", region, last_update);
 }
 
-// wipe all points that meet the `where` condition and recrunch
+// upcrunch player's stats
 async function crunchPlayer(api_id) {
-    logger.info("deleting all player points", { api_id: api_id });
-    await model.PlayerPoint.destroy({ where: { player_api_id: api_id } });
+    const last_crunch = await model.PlayerPoint.findOne({
+        attributes: ["updated_at"],
+        where: { player_api_id: api_id },
+        order: [ ["updated_at", "DESC"] ]
+    }),
+        last_crunch_date = last_crunch == undefined?
+            new Date(0) : last_crunch.updated_at;
     // get all participants for this player
     const participations = await model.Participant.findAll({
         attributes: ["api_id"],
-        where: { player_api_id: api_id } });
+        where: {
+            player_api_id: api_id,
+            created_at: {
+                $gt: last_crunch_date
+            }
+        } });
     // send everything to cruncher
     logger.info("sending participations to cruncher",
         { length: participations.length });
