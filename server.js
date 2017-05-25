@@ -29,9 +29,10 @@ const DATABASE_URI = process.env.DATABASE_URI,
     GRAB_BRAWL_QUEUE = process.env.GRAB_BRAWL_QUEUE || "grab_brawl",
     GRAB_TOURNAMENT_QUEUE = process.env.GRAB_TOURNAMENT_QUEUE || "grab_tournament",
     CRUNCH_QUEUE = process.env.CRUNCH_QUEUE || "crunch",
+    CRUNCH_TOURNAMENT_QUEUE = process.env.CRUNCH_TOURNAMENT_QUEUE || "crunch_tournament",
     ANALYZE_QUEUE = process.env.ANALYZE_QUEUE || "analyze",
     SAMPLE_QUEUE = process.env.SAMPLE_QUEUE || "sample",
-    CRUNCH_SHOVEL_SIZE = parseInt(process.env.CRUNCH_SHOVEL_SIZE) || 1000;
+    SHOVEL_SIZE = parseInt(process.env.SHOVEL_SIZE) || 1000;
 
 const app = express(),
     server = http.Server(app),
@@ -72,6 +73,7 @@ if (LOGGLY_TOKEN)
             await ch.assertQueue(GRAB_TOURNAMENT_QUEUE, {durable: true});
             await ch.assertQueue(PLAYER_PROCESS_QUEUE, {durable: true});
             await ch.assertQueue(CRUNCH_QUEUE, {durable: true});
+            await ch.assertQueue(CRUNCH_TOURNAMENT_QUEUE, {durable: true});
             await ch.assertQueue(SAMPLE_QUEUE, {durable: true});
             break;
         } catch (err) {
@@ -103,11 +105,20 @@ function gameModesForCategory(category) {
 }
 
 // convenience function to sort into the right grab queue
-function queueForCategory(category) {
+function grabQueueForCategory(category) {
     switch (category) {
         case "regular": return GRAB_QUEUE;
         case "brawl": return GRAB_BRAWL_QUEUE;
         case "tournament": return GRAB_TOURNAMENT_QUEUE;
+        default: logger.error("unsupported game mode category",
+            { category: category });
+    }
+}
+
+function crunchQueueForCategory(category) {
+    switch (category) {
+        case "regular": return CRUNCH_QUEUE;
+        case "tournament": return CRUNCH_TOURNAMENT_QUEUE;
         default: logger.error("unsupported game mode category",
             { category: category });
     }
@@ -126,7 +137,7 @@ async function grabPlayer(name, region, last_match_created_date, id, category) {
     };
     logger.info("requesting update", { name: name, region: region });
 
-    await ch.sendToQueue(queueForCategory(category),
+    await ch.sendToQueue(grabQueueForCategory(category),
             new Buffer(JSON.stringify(payload)), {
         persistent: true,
         type: "matches",
@@ -283,7 +294,7 @@ async function updateRegion(region, category) {
 
 // update a region's samples since samples_last_update
 async function updateSamples(region) {
-    const last_update = await getKey("samples_last_update",
+    const last_update = await getKey(model, "samples_last_update",
         region, (new Date(0)).toISOString());
 
     logger.info("updating samples", { region: region, last_update: last_update });
@@ -297,20 +308,21 @@ async function updateSamples(region) {
         { persistent: true, type: "samples" });
 
     last_update = (new Date()).toISOString();
-    await setKey("samples_last_update", region, last_update);
+    await setKey(model, "samples_last_update", region, last_update);
 }
 
 // upcrunch player's stats
-async function crunchPlayer(api_id) {
-    const last_crunch = await model.PlayerPoint.findOne({
-        attributes: ["updated_at"],
-        where: { player_api_id: api_id },
-        order: [ ["updated_at", "DESC"] ]
-    }),
+async function crunchPlayer(category, api_id) {
+    const db = databaseForCategory(category),
+        last_crunch = await db.PlayerPoint.findOne({
+            attributes: ["updated_at"],
+            where: { player_api_id: api_id },
+            order: [ ["updated_at", "DESC"] ]
+        }),
         last_crunch_date = last_crunch == undefined?
             new Date(0) : last_crunch.updated_at;
     // get all participants for this player
-    const participations = await model.Participant.findAll({
+    const participations = await db.Participant.findAll({
         attributes: ["api_id"],
         where: {
             player_api_id: api_id,
@@ -322,7 +334,8 @@ async function crunchPlayer(api_id) {
     logger.info("sending participations to cruncher",
         { length: participations.length });
     await Promise.map(participations, async (p) =>
-        await ch.sendToQueue(CRUNCH_QUEUE, new Buffer(p.api_id),
+        await ch.sendToQueue(crunchQueueForCategory(category),
+            new Buffer(p.api_id),
             { persistent: true, type: "player" }));
     // jobs with the type "player" won't be taken into account for global stats
     // global stats would increase on every player refresh otherwise
@@ -353,15 +366,17 @@ async function crunchTeam(team_id) {
 }
 
 // crunch (force = recrunch) global stats
-async function crunchGlobal(force=false) {
+async function crunchGlobal(category, force=false) {
+    const db = databaseForCategory(category);
     // get lcpid from keys table
-    let last_crunch_participant_id = await getKey("crunch", "global_last_crunch_participant_id", 0);
+    let last_crunch_participant_id = await getKey(db,
+        "crunch", "global_last_crunch_participant_id", 0);
 
     if (force) {
         // refresh everything
         logger.info("deleting all global points");
-        await model.GlobalPoint.destroy({ truncate: true });
-        last_crunch_participant_id = await setKey("crunch",
+        await db.GlobalPoint.destroy({ truncate: true });
+        last_crunch_participant_id = await setKey(db, "crunch",
             "global_last_crunch_participant_id", 0);
     }
 
@@ -371,25 +386,26 @@ async function crunchGlobal(force=false) {
     logger.info("loading all participations into cruncher",
         { last_crunch_participant_id: last_crunch_participant_id });
     do {
-        participations = await model.Participant.findAll({
+        participations = await db.Participant.findAll({
             attributes: ["api_id", "id"],
             where: {
                 id: { $gt: last_crunch_participant_id }
             },
-            limit: CRUNCH_SHOVEL_SIZE,
+            limit: SHOVEL_SIZE,
             offset: offset,
             order: [ ["id", "ASC"] ]
         });
         await Promise.map(participations, async (p) =>
-            await ch.sendToQueue(CRUNCH_QUEUE, new Buffer(p.api_id),
+            await ch.sendToQueue(crunchQueueForCategory(category),
+                new Buffer(p.api_id),
                 { persistent: true, type: "global" }));
-        offset += CRUNCH_SHOVEL_SIZE;
+        offset += SHOVEL_SIZE;
         if (participations.length > 0)
-            await setKey("crunch", "global_last_crunch_participant_id",
+            await setKey(db, "crunch", "global_last_crunch_participant_id",
                 participations[participations.length-1].id);
         logger.info("loading more participations into cruncher",
-            { offset: offset, limit: CRUNCH_SHOVEL_SIZE, size: participations.length });
-    } while (participations.length == CRUNCH_SHOVEL_SIZE);
+            { offset: offset, limit: SHOVEL_SIZE, size: participations.length });
+    } while (participations.length == SHOVEL_SIZE);
     logger.info("done loading participations into cruncher");
 }
 
@@ -402,23 +418,23 @@ async function analyzeGlobal() {
             where: {
                 trueskill_quality: null
             },
-            limit: CRUNCH_SHOVEL_SIZE,
+            limit: SHOVEL_SIZE,
             offset: offset,
             order: [ ["created_at", "ASC"] ]
         });
         await Promise.map(matches, async (m) =>
             await ch.sendToQueue(ANALYZE_QUEUE, new Buffer(m.api_id),
                 { persistent: true }));
-        offset += CRUNCH_SHOVEL_SIZE;
+        offset += SHOVEL_SIZE;
         logger.info("loading more matches into analyzer",
-            { offset: offset, limit: CRUNCH_SHOVEL_SIZE, size: matches.length });
-    } while (matches.length == CRUNCH_SHOVEL_SIZE);
+            { offset: offset, limit: SHOVEL_SIZE, size: matches.length });
+    } while (matches.length == SHOVEL_SIZE);
     logger.info("done loading matches into analyzer");
 }
 
 // return an entry from keys db
-async function getKey(config, key, default_value) {
-    const record = await model.Keys.findOrCreate({
+async function getKey(db, config, key, default_value) {
+    const record = await db.Keys.findOrCreate({
         where: {
             type: config,
             key: key
@@ -429,8 +445,8 @@ async function getKey(config, key, default_value) {
 }
 
 // update an entry from keys db
-async function setKey(config, key, value) {
-    const record = await model.Keys.findOrCreate({
+async function setKey(db, config, key, value) {
+    const record = await db.Keys.findOrCreate({
         where: {
             type: config,
             key: key
@@ -475,9 +491,10 @@ app.post("/api/player/:name/update/:category*?", async (req, res) => {
     updatePlayer(player, category);  // fire away
     res.sendStatus(204);
 });
-// crunch a known user
-app.post("/api/player/:name/crunch", async (req, res) => {
-    const player = await model.Player.findOne({ where: { name: req.params.name } });
+// crunch a known user  TODO force mode
+app.post("/api/player/:name/crunch/:category*?", async (req, res) => {
+    const category = req.params.category || "regular",
+        player = await model.Player.findOne({ where: { name: req.params.name } });
     if (player == undefined) {
         logger.error("player not found in db, won't recrunch",
             { name: req.params.name });
@@ -485,7 +502,7 @@ app.post("/api/player/:name/crunch", async (req, res) => {
         return;
     }
     logger.info("player in db, recrunching", { name: req.params.name });
-    crunchPlayer(player.api_id);  // fire away
+    crunchPlayer(category, player.api_id);  // fire away
     res.sendStatus(204);
 });
 // analyze a known user (calculate mmr)
@@ -548,8 +565,9 @@ app.post("/api/match/:match/telemetry", async (req, res) => {
     res.sendStatus(204);
 });
 // crunch all global stats
-app.post("/api/crunch", async (req, res) => {
-    crunchGlobal(false);  // fire away
+app.post("/api/crunch/:category*?", async (req, res) => {
+    const category = req.params.category || "regular";
+    crunchGlobal(category, false);  // fire away
     res.sendStatus(204);
 });
 // analyze *all* matches
@@ -558,8 +576,9 @@ app.post("/api/rank", async (req, res) => {
     res.sendStatus(204);
 });
 // force updating all stats
-app.post("/api/recrunch", async (req, res) => {
-    crunchGlobal(true);  // fire away
+app.post("/api/recrunch/:category*?", async (req, res) => {
+    const category = req.params.category || "regular";
+    crunchGlobal(category, true);  // fire away
     res.sendStatus(204);
 });
 // update all matches for a Toornament
