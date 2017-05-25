@@ -29,6 +29,7 @@ const DATABASE_URI = process.env.DATABASE_URI,
     GRAB_BRAWL_QUEUE = process.env.GRAB_BRAWL_QUEUE || "grab_brawl",
     GRAB_TOURNAMENT_QUEUE = process.env.GRAB_TOURNAMENT_QUEUE || "grab_tournament",
     CRUNCH_QUEUE = process.env.CRUNCH_QUEUE || "crunch",
+    ANALYZE_QUEUE = process.env.ANALYZE_QUEUE || "analyze",
     SAMPLE_QUEUE = process.env.SAMPLE_QUEUE || "sample",
     CRUNCH_SHOVEL_SIZE = parseInt(process.env.CRUNCH_SHOVEL_SIZE) || 1000;
 
@@ -327,6 +328,23 @@ async function crunchPlayer(api_id) {
     // global stats would increase on every player refresh otherwise
 }
 
+// upanalyze player's matches (TrueSkill)
+async function analyzePlayer(api_id) {
+    const participations = await model.Participant.findAll({
+        attributes: ["match_api_id"],
+        where: {
+            player_api_id: api_id,
+            trueskill_mu: null  // where not analyzed yet
+        },
+        order: [ ["created_at", "ASC"] ]
+    });
+    logger.info("sending matches to analyzer",
+        { length: participations.length });
+    await Promise.map(participations, async (p) =>
+        await ch.sendToQueue(ANALYZE_QUEUE, new Buffer(p.match_api_id),
+            { persistent: true }));
+}
+
 // reset fame and crunch
 // TODO: incremental crunch possible?
 async function crunchTeam(team_id) {
@@ -373,6 +391,29 @@ async function crunchGlobal(force=false) {
             { offset: offset, limit: CRUNCH_SHOVEL_SIZE, size: participations.length });
     } while (participations.length == CRUNCH_SHOVEL_SIZE);
     logger.info("done loading participations into cruncher");
+}
+
+// upanalyze all matches  TODO add force option
+async function analyzeGlobal() {
+    let offset = 0, matches;
+    do {
+        matches = await model.Match.findAll({
+            attributes: ["api_id"],
+            where: {
+                trueskill_quality: null
+            },
+            limit: CRUNCH_SHOVEL_SIZE,
+            offset: offset,
+            order: [ ["created_at", "ASC"] ]
+        });
+        await Promise.map(matches, async (m) =>
+            await ch.sendToQueue(ANALYZE_QUEUE, new Buffer(m.api_id),
+                { persistent: true }));
+        offset += CRUNCH_SHOVEL_SIZE;
+        logger.info("loading more matches into analyzer",
+            { offset: offset, limit: CRUNCH_SHOVEL_SIZE, size: matches.length });
+    } while (matches.length == CRUNCH_SHOVEL_SIZE);
+    logger.info("done loading matches into analyzer");
 }
 
 // return an entry from keys db
@@ -447,6 +488,19 @@ app.post("/api/player/:name/crunch", async (req, res) => {
     crunchPlayer(player.api_id);  // fire away
     res.sendStatus(204);
 });
+// analyze a known user (calculate mmr)
+app.post("/api/player/:name/rank", async (req, res) => {
+    const player = await model.Player.findOne({ where: { name: req.params.name } });
+    if (player == undefined) {
+        logger.error("player not found in db, won't recrunch",
+            { name: req.params.name });
+        res.sendStatus(404);
+        return;
+    }
+    logger.info("player in db, analyzing", { name: req.params.name });
+    analyzePlayer(player.api_id);  // fire away
+    res.sendStatus(204);
+});
 // crunch a known team
 app.post("/api/team/:id/crunch", async (req, res) => {
     if (await model.Team.findOne({ where: { id: req.params.id } }) == undefined) {
@@ -496,6 +550,11 @@ app.post("/api/match/:match/telemetry", async (req, res) => {
 // crunch all global stats
 app.post("/api/crunch", async (req, res) => {
     crunchGlobal(false);  // fire away
+    res.sendStatus(204);
+});
+// analyze *all* matches
+app.post("/api/rank", async (req, res) => {
+    analyzeGlobal();  // fire away
     res.sendStatus(204);
 });
 // force updating all stats
