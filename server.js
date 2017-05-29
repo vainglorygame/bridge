@@ -144,6 +144,30 @@ async function grabPlayer(name, region, last_match_created_date, id, category) {
         headers: { notify: "player." + name }
     });
 }
+// request grab job for multiple players' matches
+async function grabPlayers(names, region, grabstart, category) {
+    const payload = {
+        "region": region,
+        "params": {
+            "filter[playerNames]": names,
+            "filter[createdAt-start]": grabstart.toISOString(),
+            "filter[gameMode]": gameModesForCategory(category),
+            "sort": "createdAt"
+        }
+    };
+    logger.info("requesting triple player grab", {
+        names: names,
+        region: region,
+        category: category
+    });
+
+    await ch.sendToQueue(grabQueueForCategory(category),
+            new Buffer(JSON.stringify(payload)), {
+        persistent: true,
+        type: "matches",
+        headers: { notify: "player." + names }
+    });
+}
 
 // request grab jobs for a region's matches
 async function grabMatches(region, last_match_created_date) {
@@ -528,6 +552,14 @@ app.post("/api/team/:id/crunch", async (req, res) => {
     }
     logger.info("team in db, recrunching", { name: req.params.id });
     crunchTeam(req.params.id);  // fire away
+    res.sendStatus(204);
+});
+// grab multiple users by IGN
+app.post("/api/players/:region/grab/:category*?", async (req, res) => {
+    let grabstart = new Date();
+    grabstart.setTime(grabstart.getTime() - req.query.minutesAgo * 60000);
+    grabPlayers(req.query.names, req.params.region, grabstart,
+        req.params.category || "regular");
     res.sendStatus(204);
 });
 // update a random user
