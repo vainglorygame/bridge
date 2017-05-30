@@ -505,41 +505,41 @@ app.post("/api/player/:name/search", async (req, res) => {
 //   * update from `/matches`
 app.post("/api/player/:name/update/:category*?", async (req, res) => {
     const name = req.params.name, category = req.params.category || "regular",
-        player = await model.Player.findOne({ where: { name: req.params.name } });
-    if (player == undefined) {
+        players = await model.Player.findAll({ where: { name: req.params.name } });
+    if (players == undefined) {
         logger.error("player not found in db", { name: req.params.name });
         res.sendStatus(404);
         return;
     }
     logger.info("player in db, updating", { name: name, category: category });
-    updatePlayer(player, category);  // fire away
+    players.forEach((player) => updatePlayer(player, category));  // fire away
     res.sendStatus(204);
 });
 // crunch a known user  TODO force mode
 app.post("/api/player/:name/crunch/:category*?", async (req, res) => {
     const category = req.params.category || "regular",
-        player = await model.Player.findOne({ where: { name: req.params.name } });
-    if (player == undefined) {
+        players = await model.Player.findAll({ where: { name: req.params.name } });
+    if (players == undefined) {
         logger.error("player not found in db, won't recrunch",
             { name: req.params.name });
         res.sendStatus(404);
         return;
     }
     logger.info("player in db, recrunching", { name: req.params.name });
-    crunchPlayer(category, player.api_id);  // fire away
+    players.forEach((player) => crunchPlayer(category, player.api_id));  // fire away
     res.sendStatus(204);
 });
 // analyze a known user (calculate mmr)
 app.post("/api/player/:name/rank", async (req, res) => {
-    const player = await model.Player.findOne({ where: { name: req.params.name } });
-    if (player == undefined) {
+    const players = await model.Player.findAll({ where: { name: req.params.name } });
+    if (players == undefined) {
         logger.error("player not found in db, won't recrunch",
             { name: req.params.name });
         res.sendStatus(404);
         return;
     }
     logger.info("player in db, analyzing", { name: req.params.name });
-    analyzePlayer(player.api_id);  // fire away
+    players.forEach((player) => analyzePlayer(player.api_id));  // fire away
     res.sendStatus(204);
 });
 // crunch a known team
