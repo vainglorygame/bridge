@@ -377,7 +377,7 @@ async function analyzePlayer(api_id) {
     });
     logger.info("sending matches to analyzer",
         { length: participations.length });
-    await Promise.map(participations, async (p) =>
+    await Promise.each(participations, async (p) =>
         await ch.sendToQueue(ANALYZE_QUEUE, new Buffer(p.match_api_id),
             { persistent: true }));
 }
@@ -446,7 +446,7 @@ async function analyzeGlobal() {
             offset: offset,
             order: [ ["created_at", "ASC"] ]
         });
-        await Promise.map(matches, async (m) =>
+        await Promise.each(matches, async (m) =>
             await ch.sendToQueue(ANALYZE_QUEUE, new Buffer(m.api_id),
                 { persistent: true }));
         offset += SHOVEL_SIZE;
