@@ -22,7 +22,7 @@ const DATABASE_URI = process.env.DATABASE_URI,
     REGIONS = (process.env.REGIONS || "na,eu,sg,sa,ea").split(","),
     TOURNAMENT_REGIONS = (process.env.TOURNAMENT_REGIONS || "tournament-na," +
         "tournament-eu,tournament-sg,tournament-sa,tournament-ea").split(","),
-    GRABSTART = process.env.GRABSTART || "2017-01-01T00:00:00Z",
+    GRABSTART = process.env.GRABSTART || "2017-02-14T00:00:00Z",
     BRAWL_RETENTION_DAYS = parseInt(process.env.BRAWL_RETENTION_DAYS) || 3,
     PLAYER_PROCESS_QUEUE = process.env.PLAYER_PROCESS_QUEUE || "process",
     GRAB_QUEUE = process.env.GRAB_QUEUE || "grab",
@@ -126,26 +126,44 @@ function crunchQueueForCategory(category) {
 
 // request grab jobs for a player's matches
 async function grabPlayer(name, region, last_match_created_date, id, category) {
-    const payload = {
-        "region": region,
-        "params": {
-            "filter[playerIds]": id,
-            "filter[createdAt-start]": last_match_created_date,  // ISO8601 string
-            "filter[gameMode]": gameModesForCategory(category),
-            "sort": "createdAt"
-        }
-    };
-    logger.info("requesting update", { name: name, region: region });
+    const start = new Date(Date.parse(last_match_created_date)),
+        end = new Date();  // today
+    let part_start = start,
+        part_end = start;
 
-    await ch.sendToQueue(grabQueueForCategory(category),
-            new Buffer(JSON.stringify(payload)), {
-        persistent: true,
-        type: "matches",
-        headers: { notify: "player." + name }
-    });
+    // loop from lmcd forwards, adding 2w until we passed NOW
+    while (part_start < end) {
+        part_end = new Date(part_end.getTime() + (2 * 60*60*24*7*1000));  // add 2w
+        const payload = {
+            "region": region,
+            "params": {
+                "filter[playerIds]": id,
+                "filter[createdAt-start]": part_start.toISOString(),
+                "filter[createdAt-end]": part_end.toISOString(),
+                "filter[gameMode]": gameModesForCategory(category),
+                "sort": "createdAt"
+            }
+        };
+        logger.info("requesting update", {
+            name: name,
+            region: region,
+            start: part_start,
+            end: part_end
+        });
+
+        await ch.sendToQueue(grabQueueForCategory(category),
+                new Buffer(JSON.stringify(payload)), {
+            persistent: true,
+            type: "matches",
+            headers: { notify: "player." + name }
+        });
+
+        part_start = part_end;
+    }
 }
 // request grab job for multiple players' matches
 async function grabPlayers(names, region, grabstart, category) {
+    // TODO MadGlory change, call API in 2w distances
     const payload = {
         "region": region,
         "params": {
@@ -270,7 +288,7 @@ function defaultGrabstartForCategory(category) {
         return past.toISOString();  // minimum
     }
     if (category == "tournament")
-        return "2017-01-01T00:00:00Z";  // all
+        return "2017-02-12T00:00:00Z";  // all
     if (category == "regular")
         return GRABSTART;  // as via env var
 }
@@ -282,7 +300,7 @@ async function updatePlayer(player, category) {
     // if last_update is null, we need that player's full history
     let grabstart;
     if (player.get("last_update") != null)
-        grabstart = player.get("created_at");  // TODO add 1s here!!!
+        grabstart = player.get("created_at");
     if (grabstart == undefined) grabstart = defaultGrabstartForCategory(category);
     else
         // add 1s, because createdAt-start <= x <= createdAt-end
