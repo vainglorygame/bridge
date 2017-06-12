@@ -131,9 +131,9 @@ async function grabPlayer(name, region, last_match_created_date, id, category) {
     let part_start = start,
         part_end = start;
 
-    // loop from lmcd forwards, adding 2w until we passed NOW
+    // loop from lmcd forwards, adding 4w until we passed NOW
     while (part_start < end) {
-        part_end = new Date(part_end.getTime() + (2 * 60*60*24*7*1000));  // add 2w
+        part_end = new Date(part_end.getTime() + (4 * 60*60*24*7*1000));  // add 4w
         const payload = {
             "region": region,
             "params": {
@@ -163,7 +163,7 @@ async function grabPlayer(name, region, last_match_created_date, id, category) {
 }
 // request grab job for multiple players' matches
 async function grabPlayers(names, region, grabstart, category) {
-    // TODO MadGlory change, call API in 2w distances
+    // TODO MadGlory change, call API in 4w distances
     const payload = {
         "region": region,
         "params": {
