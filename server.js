@@ -134,6 +134,9 @@ async function grabPlayer(name, region, last_match_created_date, id, category) {
     // loop from lmcd forwards, adding 4w until we passed NOW
     while (part_start < end) {
         part_end = new Date(part_end.getTime() + (4 * 60*60*24*7*1000));  // add 4w
+        if(part_end > end) {
+            part_end = end;
+        }
         const payload = {
             "region": region,
             "params": {
