@@ -155,7 +155,10 @@ async function grabPlayer(name, region, last_match_created_date, id, category) {
                 new Buffer(JSON.stringify(payload)), {
             persistent: true,
             type: "matches",
-            headers: { notify: "player." + name }
+            headers: {
+                donotify: true,  // TODO backwards compat
+                notify: "player." + name
+            }
         });
 
         part_start = part_end;
@@ -183,7 +186,10 @@ async function grabPlayers(names, region, grabstart, category) {
             new Buffer(JSON.stringify(payload)), {
         persistent: true,
         type: "matches",
-        headers: { notify: "player." + names }
+        headers: {
+            donotify: true,  // TODO
+            notify: "player." + names
+        }
     });
 }
 
@@ -234,7 +240,10 @@ async function searchPlayerInRegion(region, name, id) {
             await ch.sendToQueue(PLAYER_PROCESS_QUEUE,
                 new Buffer(JSON.stringify(player)), {
                     persistent: true, type: "player",
-                    headers: { notify: "player." + player.name }
+                    headers: {
+                        donotify: true,  // TODO
+                        notify: "player." + player.name
+                    }
                 });
             return player;
         }
