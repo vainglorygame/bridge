@@ -311,7 +311,8 @@ async function updatePlayer(player, category) {
     // set last_update and request an update job
     // if last_update is null, we need that player's full history
     let grabstart;
-    if (player.get("last_update") != null)
+    if (player.get("last_update") != null && category == "regular")
+        // TODO do not fetch everything on category tournament / brawl
         grabstart = player.get("created_at");
     if (grabstart == undefined) grabstart = defaultGrabstartForCategory(category);
     else
