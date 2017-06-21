@@ -31,6 +31,7 @@ const DATABASE_URI = process.env.DATABASE_URI,
     CRUNCH_QUEUE = process.env.CRUNCH_QUEUE || "crunch",
     CRUNCH_TOURNAMENT_QUEUE = process.env.CRUNCH_TOURNAMENT_QUEUE || "crunch_tournament",
     ANALYZE_QUEUE = process.env.ANALYZE_QUEUE || "analyze",
+    ANALYZE_TOURNAMENT_QUEUE = process.env.ANALYZE_TOURNAMENT_QUEUE || "analyze_tournament",
     SAMPLE_QUEUE = process.env.SAMPLE_QUEUE || "sample",
     SHOVEL_SIZE = parseInt(process.env.SHOVEL_SIZE) || 1000;
 
@@ -119,6 +120,15 @@ function crunchQueueForCategory(category) {
     switch (category) {
         case "regular": return CRUNCH_QUEUE;
         case "tournament": return CRUNCH_TOURNAMENT_QUEUE;
+        default: logger.error("unsupported game mode category",
+            { category: category });
+    }
+}
+
+function analyzeQueueForCategory(category) {
+    switch (category) {
+        case "regular": return ANALYZE_QUEUE;
+        case "tournament": return ANALYZE_TOURNAMENT_QUEUE;
         default: logger.error("unsupported game mode category",
             { category: category });
     }
@@ -397,8 +407,9 @@ async function crunchPlayer(category, api_id) {
 }
 
 // upanalyze player's matches (TrueSkill)
-async function analyzePlayer(api_id) {
-    const participations = await model.Participant.findAll({
+async function analyzePlayer(category, api_id) {
+    const db = databaseForCategory(category),
+        participations = await db.Participant.findAll({
         attributes: ["match_api_id"],
         where: {
             player_api_id: api_id,
@@ -409,7 +420,8 @@ async function analyzePlayer(api_id) {
     logger.info("sending matches to analyzer",
         { length: participations.length });
     await Promise.each(participations, async (p) =>
-        await ch.sendToQueue(ANALYZE_QUEUE, new Buffer(p.match_api_id),
+        await ch.sendToQueue(analyzeQueueForCategory(category),
+            new Buffer(p.match_api_id),
             { persistent: true }));
 }
 
@@ -465,10 +477,11 @@ async function crunchGlobal(category, force=false) {
 }
 
 // upanalyze all matches  TODO add force option
-async function analyzeGlobal() {
+async function analyzeGlobal(category) {
+    const db = databaseForCategory(category);
     let offset = 0, matches;
     do {
-        matches = await model.Match.findAll({
+        matches = await db.Match.findAll({
             attributes: ["api_id"],
             where: {
                 trueskill_quality: null
@@ -478,7 +491,8 @@ async function analyzeGlobal() {
             order: [ ["created_at", "ASC"] ]
         });
         await Promise.each(matches, async (m) =>
-            await ch.sendToQueue(ANALYZE_QUEUE, new Buffer(m.api_id),
+            await ch.sendToQueue(analyzeQueueForCategory(category),
+                new Buffer(m.api_id),
                 { persistent: true }));
         offset += SHOVEL_SIZE;
         logger.info("loading more matches into analyzer",
@@ -561,16 +575,17 @@ app.post("/api/player/:name/crunch/:category*?", async (req, res) => {
     res.sendStatus(204);
 });
 // analyze a known user (calculate mmr)
-app.post("/api/player/:name/rank", async (req, res) => {
-    const players = await model.Player.findAll({ where: { name: req.params.name } });
+app.post("/api/player/:name/rank/:category*?", async (req, res) => {
+    const category = req.params.category || "regular",
+        players = await model.Player.findAll({ where: { name: req.params.name } });
     if (players == undefined) {
-        logger.error("player not found in db, won't recrunch",
+        logger.error("player not found in db, won't analyze",
             { name: req.params.name });
         res.sendStatus(404);
         return;
     }
     logger.info("player in db, analyzing", { name: req.params.name });
-    players.forEach((player) => analyzePlayer(player.api_id));  // fire away
+    players.forEach((player) => analyzePlayer(category, player.api_id));  // fire away
     res.sendStatus(204);
 });
 // crunch a known team
@@ -634,8 +649,9 @@ app.post("/api/crunch/:category*?", async (req, res) => {
     res.sendStatus(204);
 });
 // analyze *all* matches
-app.post("/api/rank", async (req, res) => {
-    analyzeGlobal();  // fire away
+app.post("/api/rank/:category*?", async (req, res) => {
+    const category = req.params.category || "regular";
+    analyzeGlobal(category);  // fire away
     res.sendStatus(204);
 });
 // force updating all stats
