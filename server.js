@@ -448,7 +448,7 @@ async function crunchGlobal(category, force=false) {
     }
 
     // don't load the whole Participant table at once into memory
-    let offset = 0, participations;
+    let participations;
 
     logger.info("loading all participations into cruncher",
         { last_crunch_participant_id: last_crunch_participant_id });
@@ -459,19 +459,24 @@ async function crunchGlobal(category, force=false) {
                 id: { $gt: last_crunch_participant_id }
             },
             limit: SHOVEL_SIZE,
-            offset: offset,
             order: [ ["id", "ASC"] ]
         });
         await Promise.map(participations, async (p) =>
             await ch.sendToQueue(crunchQueueForCategory(category),
                 new Buffer(p.api_id),
                 { persistent: true, type: "global" }));
-        offset += SHOVEL_SIZE;
-        if (participations.length > 0)
+
+        // update lpcid & refetch
+        if (participations.length > 0) {
+            last_crunch_participant_id = participations[participations.length-1].id;
             await setKey(db, "crunch", "global_last_crunch_participant_id",
-                participations[participations.length-1].id);
-        logger.info("loading more participations into cruncher",
-            { offset: offset, limit: SHOVEL_SIZE, size: participations.length });
+                last_crunch_participant_id);
+        }
+        logger.info("loading more participations into cruncher", {
+            limit: SHOVEL_SIZE,
+            size: participations.length,
+            last_crunch_participant_id: last_crunch_participant_id
+        });
     } while (participations.length == SHOVEL_SIZE);
     logger.info("done loading participations into cruncher");
 }
