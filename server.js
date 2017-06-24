@@ -239,7 +239,9 @@ async function grabPlayers(names, region, grabstart, category) {
 
 // request grab jobs for a region's matches
 async function grabMatches(region, last_match_created_date) {
-    last_match_created_date = last_match_created_date || new Date(0);
+    last_match_created_date = last_match_created_date
+        || new Date(Date.parse(defaultGrabstartForCategory("tournament")));
+    const now = new Date();
 
     // add 1s, because createdAt-start <= x <= createdAt-end
     // so without the +1s, we'd always get the last_match_created_date match back
