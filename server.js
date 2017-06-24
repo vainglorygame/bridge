@@ -156,34 +156,45 @@ function analyzeQueueForCategory(category) {
     }
 }
 
+// API requires maximum time interval of 4w
+// return [payload, payload, …] with fixed createdAt
+function splitGrabs(payload, start, end) {
+    console.log(payload, start, end);
+    let part_start = start,
+        part_end = start,
+        payloads = [];
+    // loop forwards, adding 4w until we passed NOW
+    while (part_start < end) {
+        part_end = new Date(part_end.getTime() + (4 * 60*60*24*7*1000));  // add 4w
+        if(part_end > end) part_end = end;
+        let pl = payload;
+        pl["params"]["filter[createdAt-start]"] = part_start.toISOString();
+        pl["params"]["filter[createdAt-end]"] = part_end.toISOString();
+        // push a deep clone or the object will have the reference to part_start
+        // which leads to all start/end dates being the same (?!)
+        payloads.push(JSON.parse(JSON.stringify(pl)));  // JavaScript sucks.
+        part_start = part_end;
+    }
+    return payloads;
+}
+
 // request grab jobs for a player's matches
 async function grabPlayer(name, region, last_match_created_date, id, category) {
     const start = new Date(Date.parse(last_match_created_date)),
         end = new Date();  // today
-    let part_start = start,
-        part_end = start;
 
-    // loop from lmcd forwards, adding 4w until we passed NOW
-    while (part_start < end) {
-        part_end = new Date(part_end.getTime() + (4 * 60*60*24*7*1000));  // add 4w
-        if(part_end > end) {
-            part_end = end;
+    const payload_template = {
+        "region": region,
+        "params": {
+            "filter[playerIds]": id,
+            "filter[gameMode]": gameModesForCategory(category),
+            "sort": "createdAt"
         }
-        const payload = {
-            "region": region,
-            "params": {
-                "filter[playerIds]": id,
-                "filter[createdAt-start]": part_start.toISOString(),
-                "filter[createdAt-end]": part_end.toISOString(),
-                "filter[gameMode]": gameModesForCategory(category),
-                "sort": "createdAt"
-            }
-        };
+    };
+    await Promise.each(splitGrabs(payload_template, start, end), async (payload) => {
         logger.info("requesting update", {
             name: name,
-            region: region,
-            start: part_start,
-            end: part_end
+            region: region
         });
 
         await ch.sendToQueue(grabQueueForCategory(category),
@@ -195,36 +206,35 @@ async function grabPlayer(name, region, last_match_created_date, id, category) {
                 notify: "player." + name
             }
         });
-
-        part_start = part_end;
-    }
+    });
 }
 // request grab job for multiple players' matches
 async function grabPlayers(names, region, grabstart, category) {
     // TODO MadGlory change, call API in 4w distances
-    const payload = {
+    const payload_template = {
         "region": region,
         "params": {
             "filter[playerNames]": names,
-            "filter[createdAt-start]": grabstart.toISOString(),
             "filter[gameMode]": gameModesForCategory(category),
             "sort": "createdAt"
         }
-    };
+    }, now = new Date();
     logger.info("requesting triple player grab", {
         names: names,
         region: region,
         category: category
     });
 
-    await ch.sendToQueue(grabQueueForCategory(category),
-            new Buffer(JSON.stringify(payload)), {
-        persistent: true,
-        type: "matches",
-        headers: {
-            donotify: true,  // TODO
-            notify: "player." + names
-        }
+    await Promise.each(splitGrabs(payload_template, grabstart, now), async (payload) => {
+        await ch.sendToQueue(grabQueueForCategory(category),
+                new Buffer(JSON.stringify(payload)), {
+            persistent: true,
+            type: "matches",
+            headers: {
+                donotify: true,  // TODO
+                notify: "player." + names
+            }
+        });
     });
 }
 
@@ -236,19 +246,20 @@ async function grabMatches(region, last_match_created_date) {
     // so without the +1s, we'd always get the last_match_created_date match back
     last_match_created_date.setSeconds(last_match_created_date.getSeconds() + 1);
 
-    const payload = {
+    const payload_template = {
         "region": region,
         "params": {
-            "filter[createdAt-start]": last_match_created_date.toISOString(),
             "sort": "createdAt",
             "page[limit]": 5  // TODO maximum for `/matches`
         }
     };
     logger.info("requesting region update", { region: region });
 
-    await ch.sendToQueue(GRAB_TOURNAMENT_QUEUE, new Buffer(JSON.stringify(payload)), {
-        persistent: true,
-        type: "matches"
+    await Promise.each(splitGrabs(payload_template, last_match_created_date, now), async (payload) => {
+        await ch.sendToQueue(GRAB_TOURNAMENT_QUEUE, new Buffer(JSON.stringify(payload)), {
+            persistent: true,
+            type: "matches"
+        });
     });
 }
 
@@ -702,9 +713,6 @@ app.post("/api/recrunch/:category*?", async (req, res) => {
     const category = req.params.category || "regular";
     crunchGlobal(category, true);  // fire away
     res.sendStatus(204);
-});
-// update all matches for a Toornament
-app.post("/api/toornament/:name/update", async (req, res) => {
 });
 
 /* internal monitoring */
