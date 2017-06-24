@@ -159,7 +159,6 @@ function analyzeQueueForCategory(category) {
 // API requires maximum time interval of 4w
 // return [payload, payload, …] with fixed createdAt
 function splitGrabs(payload, start, end) {
-    console.log(payload, start, end);
     let part_start = start,
         part_end = start,
         payloads = [];
@@ -578,7 +577,7 @@ async function setKey(db, config, key, value) {
 app.post("/api/match/:region/update", async (req, res) => {
     const region = req.params.region;
     if (TOURNAMENT_REGIONS.indexOf(region) == -1) {
-        console.error("called with unsupported region", { region: region });
+        logger.error("called with unsupported region", { region: region });
         res.sendStatus(404);
         return;
     }
