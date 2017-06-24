@@ -25,6 +25,7 @@ const DATABASE_URI = process.env.DATABASE_URI,
     GRABSTART = process.env.GRABSTART || "2017-02-14T00:00:00Z",
     BRAWL_RETENTION_DAYS = parseInt(process.env.BRAWL_RETENTION_DAYS) || 3,
     PLAYER_PROCESS_QUEUE = process.env.PLAYER_PROCESS_QUEUE || "process",
+    PLAYER_TOURNAMENT_PROCESS_QUEUE = process.env.PLAYER_TOURNAMENT_PROCESS_QUEUE || "process_tournament",
     GRAB_QUEUE = process.env.GRAB_QUEUE || "grab",
     GRAB_BRAWL_QUEUE = process.env.GRAB_BRAWL_QUEUE || "grab_brawl",
     GRAB_TOURNAMENT_QUEUE = process.env.GRAB_TOURNAMENT_QUEUE || "grab_tournament",
@@ -73,6 +74,7 @@ if (LOGGLY_TOKEN)
             await ch.assertQueue(GRAB_BRAWL_QUEUE, {durable: true});
             await ch.assertQueue(GRAB_TOURNAMENT_QUEUE, {durable: true});
             await ch.assertQueue(PLAYER_PROCESS_QUEUE, {durable: true});
+            await ch.assertQueue(PLAYER_TOURNAMENT_PROCESS_QUEUE, {durable: true});
             await ch.assertQueue(CRUNCH_QUEUE, {durable: true});
             await ch.assertQueue(CRUNCH_TOURNAMENT_QUEUE, {durable: true});
             await ch.assertQueue(SAMPLE_QUEUE, {durable: true});
@@ -111,6 +113,15 @@ function grabQueueForCategory(category) {
         case "regular": return GRAB_QUEUE;
         case "brawl": return GRAB_BRAWL_QUEUE;
         case "tournament": return GRAB_TOURNAMENT_QUEUE;
+        default: logger.error("unsupported game mode category",
+            { category: category });
+    }
+}
+
+function processQueueForCategory(category) {
+    switch (category) {
+        case "regular": return PLAYER_PROCESS_QUEUE;
+        case "tournament": return PLAYER_TOURNAMENT_PROCESS_QUEUE;
         default: logger.error("unsupported game mode category",
             { category: category });
     }
@@ -233,7 +244,7 @@ async function grabMatches(region, last_match_created_date) {
 // search for a player name in one region
 // request process for lifetime
 // return an array (JSONAPI response)
-async function searchPlayerInRegion(region, name, id) {
+async function searchPlayerInRegion(region, name, id, category) {
     logger.info("searching", { name: name, id: id, region: region });
     let options = {};
     if (id == undefined) options["filter[playerNames]"] = name
@@ -250,7 +261,7 @@ async function searchPlayerInRegion(region, name, id) {
                 new Buffer("search_success"));
             // send to processor, so the player is in db
             // no matter whether we find matches or not
-            await ch.sendToQueue(PLAYER_PROCESS_QUEUE,
+            await ch.sendToQueue(processQueueForCategory(category),
                 new Buffer(JSON.stringify(player)), {
                     persistent: true, type: "player",
                     headers: {
@@ -270,17 +281,17 @@ async function searchPlayerInRegion(region, name, id) {
 // search for player name on all shards
 // grab player(s)
 // send a notification for results and request updates
-async function searchPlayer(name) {
+async function searchPlayer(name, category) {
     let found = false;
     logger.info("searching", { name: name });
-    await Promise.map(REGIONS, async (region) => {
-        const players = await searchPlayerInRegion(region, name, undefined);
+    await Promise.map(regionsForCategory(category), async (region) => {
+        const players = await searchPlayerInRegion(region, name, undefined, category);
         if (players.length > 0) found = true;
 
         // request grab jobs
         await Promise.map(players, (p) =>
             grabPlayer(p.name, p.shardId,
-                defaultGrabstartForCategory("regular"), p.id, "regular"));
+                defaultGrabstartForCategory(category), p.id, category));
     });
     // notify web
     if (!found) {
@@ -290,6 +301,15 @@ async function searchPlayer(name) {
     }
 }
 
+// return REGIONS based on category
+function regionsForCategory(category) {
+    if (category == "regular")
+        return REGIONS;
+    if (category == "tournament")
+        return TOURNAMENT_REGIONS;
+    logger.error("unsupported category", { category: category });
+}
+    
 // return the fitting db connection based on game mode
 // `category` is an enum (brawl, regular, tournament)
 function databaseForCategory(category) {
@@ -331,7 +351,7 @@ async function updatePlayer(player, category) {
         grabstart.setSeconds(grabstart.getSeconds() + 1);
 
     const players = await searchPlayerInRegion(
-        player.get("shard_id"), player.get("name"), player.get("api_id"));
+        player.get("shard_id"), player.get("name"), player.get("api_id"), category);
 
     // will be the same as `player` 99.9% of the time
     // but not when the player changed their name
@@ -544,8 +564,9 @@ app.post("/api/match/:region/update", async (req, res) => {
     res.sendStatus(204);
 });
 // force an update
-app.post("/api/player/:name/search", async (req, res) => {
-    searchPlayer(req.params.name);  // do not await, just fire
+app.post("/api/player/:name/search/:category*?", async (req, res) => {
+    const name = req.params.name, category = req.params.category || "regular";
+    searchPlayer(name, category);  // do not await, just fire
     res.sendStatus(204);  // notifications will follow
 });
 // update a known user
