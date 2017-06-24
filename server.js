@@ -34,6 +34,7 @@ const DATABASE_URI = process.env.DATABASE_URI,
     ANALYZE_QUEUE = process.env.ANALYZE_QUEUE || "analyze",
     ANALYZE_TOURNAMENT_QUEUE = process.env.ANALYZE_TOURNAMENT_QUEUE || "analyze_tournament",
     SAMPLE_QUEUE = process.env.SAMPLE_QUEUE || "sample",
+    SAMPLE_TOURNAMENT_QUEUE = process.env.SAMPLE_TOURNAMENT_QUEUE || "sample_tournament",
     SHOVEL_SIZE = parseInt(process.env.SHOVEL_SIZE) || 1000;
 
 const app = express(),
@@ -78,6 +79,7 @@ if (LOGGLY_TOKEN)
             await ch.assertQueue(CRUNCH_QUEUE, {durable: true});
             await ch.assertQueue(CRUNCH_TOURNAMENT_QUEUE, {durable: true});
             await ch.assertQueue(SAMPLE_QUEUE, {durable: true});
+            await ch.assertQueue(SAMPLE_TOURNAMENT_QUEUE, {durable: true});
             break;
         } catch (err) {
             logger.error("Error connecting", err);
@@ -113,6 +115,15 @@ function grabQueueForCategory(category) {
         case "regular": return GRAB_QUEUE;
         case "brawl": return GRAB_BRAWL_QUEUE;
         case "tournament": return GRAB_TOURNAMENT_QUEUE;
+        default: logger.error("unsupported game mode category",
+            { category: category });
+    }
+}
+
+function sampleQueueForCategory(category) {
+    switch (category) {
+        case "regular": return SAMPLE_QUEUE;
+        case "tournament": return SAMPLE_TOURNAMENT_QUEUE;
         default: logger.error("unsupported game mode category",
             { category: category });
     }
@@ -575,8 +586,10 @@ app.post("/api/player/:name/search/:category*?", async (req, res) => {
 //   * update lifetime from `/players` via id, catch IGN changes
 //   * update from `/matches`
 app.post("/api/player/:name/update/:category*?", async (req, res) => {
-    const name = req.params.name, category = req.params.category || "regular",
-        players = await model.Player.findAll({ where: { name: req.params.name } });
+    const name = req.params.name,
+        category = req.params.category || "regular",
+        db = databaseForCategory(category),
+        players = await db.Player.findAll({ where: { name: req.params.name } });
     if (players == undefined) {
         logger.error("player not found in db", { name: req.params.name });
         res.sendStatus(404);
@@ -589,7 +602,8 @@ app.post("/api/player/:name/update/:category*?", async (req, res) => {
 // crunch a known user  TODO force mode
 app.post("/api/player/:name/crunch/:category*?", async (req, res) => {
     const category = req.params.category || "regular",
-        players = await model.Player.findAll({ where: { name: req.params.name } });
+        db = databaseForCategory(category),
+        players = await db.Player.findAll({ where: { name: req.params.name } });
     if (players == undefined) {
         logger.error("player not found in db, won't recrunch",
             { name: req.params.name });
@@ -603,7 +617,8 @@ app.post("/api/player/:name/crunch/:category*?", async (req, res) => {
 // analyze a known user (calculate mmr)
 app.post("/api/player/:name/rank/:category*?", async (req, res) => {
     const category = req.params.category || "regular",
-        players = await model.Player.findAll({ where: { name: req.params.name } });
+        db = databaseForCategory(category),
+        players = await db.Player.findAll({ where: { name: req.params.name } });
     if (players == undefined) {
         logger.error("player not found in db, won't analyze",
             { name: req.params.name });
@@ -651,18 +666,20 @@ app.post("/api/samples", async (req, res) => {
     res.sendStatus(204);
 });
 // download Telemetry
-app.post("/api/match/:match/telemetry", async (req, res) => {
+app.post("/api/match/:match/telemetry/:category?", async (req, res) => {
     logger.info("requesting download for Telemetry", { api_id: req.params.match });
-    const asset = await model.Asset.findOne({ where: {
-        match_api_id: req.params.match
-    } });
+    const category = req.params.category || "regular",
+        db = databaseForCategory(category),
+        asset = await db.Asset.findOne({ where: {
+            match_api_id: req.params.match
+        } });
     if (asset == undefined) {
         logger.error("could not find any assets for match",
             { api_id: req.params.match });
         res.sendStatus(404);
         return;
     }
-    await ch.sendToQueue(SAMPLE_QUEUE, new Buffer(JSON.stringify(asset.url)), {
+    await ch.sendToQueue(sampleQueueForCategory(category), new Buffer(JSON.stringify(asset.url)), {
         persistent: true, type: "telemetry",
         headers: { match_api_id: req.params.match }
     });
