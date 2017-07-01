@@ -91,7 +91,7 @@
                             "/topic/player.".length);
                     else name = "global";
 
-                    notif(msg.body, "grey");
+                    notif(`(${msg.headers.destination}) ${msg.body}`, "grey");
                     switch (msg.body) {
                         case "search_fail":
                             notif(name + ": not found", "red"); break;
