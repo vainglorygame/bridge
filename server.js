@@ -12,7 +12,9 @@ const amqp = require("amqplib"),
     sleep = require("sleep-promise"),
     api = require("../orm/api");
 
-const DATABASE_URI = process.env.DATABASE_URI,
+const PORT = parseInt(process.env.PORT) || 8880,
+    KEY_TYPE = process.env.KEY_TYPE || "crunch",  // backwards compat
+    DATABASE_URI = process.env.DATABASE_URI,
     DATABASE_BRAWL_URI = process.env.DATABASE_BRAWL_URI,
     DATABASE_TOURNAMENT_URI = process.env.DATABASE_TOURNAMENT_URI,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
@@ -93,7 +95,7 @@ if (LOGGLY_TOKEN)
         modelTournament = require("../orm/model")(seqTournament, Seq);
 })();
 
-server.listen(8880);
+server.listen(PORT);
 app.use(express.static("assets"));
 
 // convenience mapping
@@ -402,8 +404,9 @@ async function updateRegion(region, category) {
 
 // update a region's samples since samples_last_update
 async function updateSamples(region) {
-    const last_update = await getKey(model, "samples_last_update",
-        region, (new Date(0)).toISOString());
+    const last_update = await getKey(model,
+        `samples_last_update+${region}`,
+        (new Date(0)).toISOString());
 
     logger.info("updating samples", { region: region, last_update: last_update });
     await ch.sendToQueue(GRAB_QUEUE, new Buffer(
@@ -416,7 +419,8 @@ async function updateSamples(region) {
         { persistent: true, type: "samples" });
 
     last_update = (new Date()).toISOString();
-    await setKey(model, "samples_last_update", region, last_update);
+    await setKey(model, `samples_last_update+${region}`,
+        region, last_update);
 }
 
 // upcrunch player's stats
@@ -480,13 +484,13 @@ async function crunchGlobal(category, force=false) {
     const db = databaseForCategory(category);
     // get lcpid from keys table
     let last_crunch_participant_id = await getKey(db,
-        "crunch", "global_last_crunch_participant_id", 0);
+        "global_last_crunch_participant_id", 0);
 
     if (force) {
         // refresh everything
         logger.info("deleting all global points");
         await db.GlobalPoint.destroy({ truncate: true });
-        last_crunch_participant_id = await setKey(db, "crunch",
+        last_crunch_participant_id = await setKey(db,
             "global_last_crunch_participant_id", 0);
     }
 
@@ -512,7 +516,7 @@ async function crunchGlobal(category, force=false) {
         // update lpcid & refetch
         if (participations.length > 0) {
             last_crunch_participant_id = participations[participations.length-1].id;
-            await setKey(db, "crunch", "global_last_crunch_participant_id",
+            await setKey(db, "global_last_crunch_participant_id",
                 last_crunch_participant_id);
         }
         logger.info("loading more participations into cruncher", {
@@ -550,10 +554,10 @@ async function analyzeGlobal(category) {
 }
 
 // return an entry from keys db
-async function getKey(db, config, key, default_value) {
+async function getKey(db, key, default_value) {
     const record = await db.Keys.findOrCreate({
         where: {
-            type: config,
+            type: KEY_TYPE,
             key: key
         },
         defaults: { value: default_value }
@@ -562,10 +566,10 @@ async function getKey(db, config, key, default_value) {
 }
 
 // update an entry from keys db
-async function setKey(db, config, key, value) {
+async function setKey(db, key, value) {
     const record = await db.Keys.findOrCreate({
         where: {
-            type: config,
+            type: KEY_TYPE,
             key: key
         },
         defaults: { value: value }
