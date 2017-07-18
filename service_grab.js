@@ -187,7 +187,7 @@ module.exports = class Analyzer extends Service {
 
         // add 1s, because createdAt-start <= x <= createdAt-end
         // so without the +1s, we'd always get the last_match_created_date match back
-        last_match_created_date.setSeconds(last_match_created_date.getSeconds() + 1);
+        lmcd.setSeconds(lmcd.getSeconds() + 1);
 
         const payload_template = {
             "region": region,
@@ -195,7 +195,7 @@ module.exports = class Analyzer extends Service {
         };
         logger.info("requesting region update", { region: region });
 
-        await Promise.each(this.getSplitGrabs(payload_template, last_match_created_date, now), async (payload) => {
+        await Promise.each(this.getSplitGrabs(payload_template, lmcd, now), async (payload) => {
             await this.forward(GRAB_TOURNAMENT_QUEUE,
                 JSON.stringify(payload), { persistent: true });
         });
