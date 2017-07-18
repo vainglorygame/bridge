@@ -285,7 +285,7 @@ module.exports = class Analyzer extends Service {
             last_match = await db.Participant.findOne({
                 attributes: ["created_at"],
                 where: { shard_id: region },
-                order: [ [db.col("created_at"), "DESC"] ]
+                order: [ [Seq.col("created_at"), "DESC"] ]
             });
         if (last_match == null) grabstart = undefined;
         else grabstart = last_match.get("created_at");
