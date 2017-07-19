@@ -218,9 +218,9 @@ module.exports = class Analyzer extends Service {
             // send to processor, so the player is in db
             // no matter whether we find matches or not
             await this.forward(this.getTarget(category + "_player"), JSON.stringify(player), {
-                    persistent: true, type: "player",
-                    headers: { notify: "player." + player.name }
-                });
+                persistent: true, type: "player",
+                headers: { notify: "player." + player.name }
+            });
             return player;
         });
         if (players.length == 0)
@@ -259,7 +259,7 @@ module.exports = class Analyzer extends Service {
         let grabstart;
         if (player.get("last_update") != null && category == "regular")
             // TODO do not fetch everything on category tournament / brawl
-            grabstart = player.get("created_at");
+            grabstart = player.last_match_created_date;
         if (grabstart == undefined) grabstart = this.getGrabstart(category);
         else
             // add 1s, because createdAt-start <= x <= createdAt-end
