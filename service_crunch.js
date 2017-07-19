@@ -95,7 +95,7 @@ module.exports = class Cruncher extends Service {
     async crunchGlobal(category) {
         const db = this.getDatabase(category);
         // get lcpid from keys table
-        let last_crunch_participant_id = await this.getKey(db,
+        let last_crunch_participant_id = await this.getKey(category,
             "global_last_crunch_participant_id", 0);
 
         // don't load the whole Participant table at once into memory
@@ -119,7 +119,7 @@ module.exports = class Cruncher extends Service {
             // update lpcid & refetch
             if (participations.length > 0) {
                 last_crunch_participant_id = participations[participations.length-1].id;
-                await this.setKey(db, "global_last_crunch_participant_id",
+                await this.setKey(category, "global_last_crunch_participant_id",
                     last_crunch_participant_id);
             }
             logger.info("loading more participations into cruncher", {
