@@ -78,7 +78,7 @@ module.exports = class Cruncher extends Service {
         logger.info("sending participations to cruncher",
             { length: participations.length });
         await Promise.map(participations, async (p) =>
-            await this.forward(this.getQueue(category),
+            await this.forward(this.getTarget(category),
                 p.api_id, { persistent: true, type: "player" }));
         // jobs with the type "player" won't be taken into account for global stats
         // global stats would increase on every player refresh otherwise
@@ -113,7 +113,7 @@ module.exports = class Cruncher extends Service {
                 order: [ ["id", "ASC"] ]
             });
             await Promise.map(participations, async (p) =>
-                await this.forward(this.getQueue(category), p.api_id,
+                await this.forward(this.getTarget(category), p.api_id,
                     { persistent: true, type: "global" }));
 
             // update lpcid & refetch
