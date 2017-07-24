@@ -6,7 +6,8 @@ const Promise = require("bluebird"),
     Service = require("./service_skeleton.js");
 
 const logger = global.logger,
-    CRUNCH_QUEUE = process.env.CRUNCH_QUEUE || "crunch",
+    CRUNCH_QUEUE = process.env.CRUNCH_QUEUE || "crunch_global",
+    CRUNCH_PLAYER_QUEUE = process.env.CRUNCH_PLAYER_QUEUE || "crunch_player",
     CRUNCH_TOURNAMENT_QUEUE = process.env.CRUNCH_TOURNAMENT_QUEUE || "crunch_tournament",
     SHOVEL_SIZE = parseInt(process.env.SHOVEL_SIZE) || 1000;
 
@@ -16,6 +17,7 @@ module.exports = class Cruncher extends Service {
 
         this.setTargets({
             "regular": CRUNCH_QUEUE,
+            "regular_player": CRUNCH_PLAYER_QUEUE,
             "tournament": CRUNCH_TOURNAMENT_QUEUE
         });
 
@@ -61,34 +63,21 @@ module.exports = class Cruncher extends Service {
     // upcrunch player's stats
     async crunchPlayer(category, api_id) {
         const db = this.getDatabase(category),
-            where = { player_api_id: api_id },
-            last_crunch = await db.PlayerPoint.findOne({
-                attributes: ["updated_at"],
-                where,
-                order: [ ["updated_at", "DESC"] ]
-            });
-        if (last_crunch) where.created_at = { $gt: last_crunch.updated_at };
+            where = { player_api_id: api_id };
 
+        // wipe previous calculations
+        await db.PlayerPoint.destroy({ where });
         // get all participants for this player
         const participations = await db.Participant.findAll({
-            attributes: ["api_id"],
+            attributes: [ "api_id" ],
             where
         });
         // send everything to cruncher
         logger.info("sending participations to cruncher",
             { length: participations.length });
         await Promise.map(participations, async (p) =>
-            await this.forward(this.getTarget(category),
-                p.api_id, { persistent: true, type: "player" }));
-        // jobs with the type "player" won't be taken into account for global stats
-        // global stats would increase on every player refresh otherwise
-    }
-
-    // reset fame and crunch
-    // TODO: incremental crunch possible?
-    async crunchTeam(team_id) {
-        await this.forward(CRUNCH_QUEUE, team_id,
-            { persistent: true, type: "team" });
+            await this.forward(this.getTarget(category + "_player"),
+                p.api_id, { persistent: true }));
     }
 
     // crunch global stats
@@ -114,7 +103,7 @@ module.exports = class Cruncher extends Service {
             });
             await Promise.map(participations, async (p) =>
                 await this.forward(this.getTarget(category), p.api_id,
-                    { persistent: true, type: "global" }));
+                    { persistent: true }));
 
             // update lpcid & refetch
             if (participations.length > 0) {
