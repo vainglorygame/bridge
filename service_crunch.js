@@ -27,6 +27,11 @@ module.exports = class Cruncher extends Service {
                 this.crunchGlobal(req.params.category || "regular");
                 res.sendStatus(204);
             },
+            // crunch all players
+            "/api/player/crunch/:category*?": async (req, res) => {
+                this.crunchGlobal(req.params.category || "regular", true);
+                res.sendStatus(204);
+            },
             // crunch a player
             "/api/player/:name/crunch/:category*?": async (req, res) => {
                 const category = req.params.category || "regular",
@@ -41,20 +46,6 @@ module.exports = class Cruncher extends Service {
                 logger.info("player in db, crunching", { name: req.params.name });
                 players.forEach((player) =>
                     this.crunchPlayer(category, player.api_id));  // fire away
-                res.sendStatus(204);
-            },
-            // crunch a team
-            "/api/team/:id/crunch": async (req, res) => {
-                const db = this.getDatabase("regular"),
-                    team = await db.Team.findOne({ where: { id: req.params.id } });
-                if (team == undefined) {
-                    logger.error("team not found in db, won't crunch",
-                        { name: req.params.id });
-                    res.sendStatus(404);
-                    return;
-                }
-                logger.info("team in db, crunching", { name: team.id });
-                crunchTeam(team.id);  // fire away
                 res.sendStatus(204);
             }
         });
@@ -81,11 +72,13 @@ module.exports = class Cruncher extends Service {
     }
 
     // crunch global stats
-    async crunchGlobal(category) {
-        const db = this.getDatabase(category);
+    async crunchGlobal(category, is_player=false) {
+        const db = this.getDatabase(category),
+            key_name = "global_last_crunch_participant_id" + (is_player?"_player":""),
+            target = category + (is_player?"_player":"");
+        console.log("getting key", category, key_name);
         // get lcpid from keys table
-        let last_crunch_participant_id = await this.getKey(category,
-            "global_last_crunch_participant_id", 0);
+        let last_crunch_participant_id = await this.getKey(category, key_name, 0);
 
         // don't load the whole Participant table at once into memory
         let participations;
@@ -102,13 +95,13 @@ module.exports = class Cruncher extends Service {
                 order: [ ["id", "ASC"] ]
             });
             await Promise.map(participations, async (p) =>
-                await this.forward(this.getTarget(category), p.api_id,
+                await this.forward(this.getTarget(target), p.api_id,
                     { persistent: true }));
 
             // update lpcid & refetch
             if (participations.length > 0) {
                 last_crunch_participant_id = participations[participations.length-1].id;
-                await this.setKey(category, "global_last_crunch_participant_id",
+                await this.setKey(category, key_name,
                     last_crunch_participant_id);
             }
             logger.info("loading more participations into cruncher", {

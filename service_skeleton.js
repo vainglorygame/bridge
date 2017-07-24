@@ -17,7 +17,7 @@ module.exports = class Service {
     }
     getDatabase(category) {
         if (!this.dbs.has(category))
-            logger.error("unsupported database category");
+            logger.error("unsupported database category", category);
         return this.dbs.get(category);
     }
 
