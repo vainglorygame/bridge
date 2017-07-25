@@ -76,7 +76,6 @@ module.exports = class Cruncher extends Service {
         const db = this.getDatabase(category),
             key_name = "global_last_crunch_participant_id" + (is_player?"_player":""),
             target = category + (is_player?"_player":"");
-        console.log("getting key", category, key_name);
         // get lcpid from keys table
         let last_crunch_participant_id = await this.getKey(category, key_name, 0);
 

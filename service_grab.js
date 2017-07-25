@@ -65,13 +65,27 @@ module.exports = class Analyzer extends Service {
                 const name = req.params.name,
                     category = req.params.category || "regular",
                     db = this.getDatabase(category),
-                    players = await db.Player.findAll({ where: { name: req.params.name } });
+                    players = await db.Player.findAll({ where: { name } });
                 if (players == undefined) {
-                    logger.error("player not found in db", { name: req.params.name });
+                    logger.error("player not found in db", { name });
                     res.sendStatus(404);
                     return;
                 }
                 logger.info("player in db, updating", { name: name, category: category });
+                players.forEach((player) => this.updatePlayer(player, category));
+                res.sendStatus(204);
+            },
+            "/api/player/api_id/:api_id/update/:category*?": async (req, res) => {
+                const api_id = req.params.api_id,
+                    category = req.params.category || "regular",
+                    db = this.getDatabase(category),
+                    players = await db.Player.findAll({ where: { api_id } });
+                if (players == undefined) {
+                    logger.error("player not found in db", { name });
+                    res.sendStatus(404);
+                    return;
+                }
+                logger.info("player in db, updating", { name, category });
                 players.forEach((player) => this.updatePlayer(player, category));
                 res.sendStatus(204);
             },
