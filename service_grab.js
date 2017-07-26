@@ -81,11 +81,11 @@ module.exports = class Analyzer extends Service {
                     db = this.getDatabase(category),
                     players = await db.Player.findAll({ where: { api_id } });
                 if (players == undefined) {
-                    logger.error("player not found in db", { name });
+                    logger.error("player not found in db", { api_id });
                     res.sendStatus(404);
                     return;
                 }
-                logger.info("player in db, updating", { name, category });
+                logger.info("player in db, updating", { api_id, category });
                 players.forEach((player) => this.updatePlayer(player, category));
                 res.sendStatus(204);
             },
