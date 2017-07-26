@@ -85,8 +85,7 @@ app.use(express.static("assets"));
 /* internal monitoring */
 app.get("/", (req, res) => res.sendFile(__dirname + "/index.html"));
 
-process.on("unhandledRejection", err => {
-    logger.error("Uncaught Promise Error:", err.stack);
-    // bridge never exits!
-    //process.exit();
+process.on("unhandledRejection", (err) => {
+    logger.error(err);
+    process.exit(1);  // fail hard and die
 });
