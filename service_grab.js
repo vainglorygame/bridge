@@ -144,7 +144,7 @@ module.exports = class Analyzer extends Service {
             // push a deep clone or the object will have the reference to part_start
             // which leads to all start/end dates being the same (?!)
             payloads.push(JSON.parse(JSON.stringify(pl)));  // JavaScript sucks.
-            part_start = part_end;
+            part_start.setSeconds(part_end.getSeconds() + 1);  // do not overlap start&end, or a match at created_at=start=end will appear twice
         }
         return payloads;
     }
