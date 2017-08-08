@@ -135,19 +135,20 @@ module.exports = class Analyzer extends Service {
     // API requires maximum time interval of 4w
     // return [payload, payload, …] with fixed createdAt
     getSplitGrabs(payload, start, end) {
-        let part_start = start, part_end = start,
+        let last_start = new Date(start.getTime()),
             payloads = [];
         // loop forwards, adding 4w until we passed NOW
-        while (part_start < end) {
-            part_end = new Date(part_end.getTime() + (4 * 60*60*24*7*1000));  // add 4w
-            if(part_end > end) part_end = end;
-            let pl = payload;
-            pl["params"]["filter[createdAt-start]"] = part_start.toISOString();
-            pl["params"]["filter[createdAt-end]"] = part_end.toISOString();
-            // push a deep clone or the object will have the reference to part_start
-            // which leads to all start/end dates being the same (?!)
-            payloads.push(JSON.parse(JSON.stringify(pl)));  // JavaScript sucks.
-            part_start.setSeconds(part_end.getSeconds() + 1);  // do not overlap start&end, or a match at created_at=start=end will appear twice
+        while (last_start < end) {
+            let this_end = new Date(last_start.getTime() + (4 * 60*60*24*7*1000)),  // add 4w
+                this_start = new Date(last_start.getTime());
+
+            if(this_end > end) this_end = end;
+            let pl = JSON.parse(JSON.stringify(payload));
+            pl["params"]["filter[createdAt-start]"] = this_start.toISOString();
+            pl["params"]["filter[createdAt-end]"] = this_end.toISOString();
+            payloads.push(pl);
+            // +1s, do not overlap start&end, or a match at created_at=start=end will appear twice
+            last_start = new Date(this_end.getTime() + 1000);
         }
         return payloads;
     }
