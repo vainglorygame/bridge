@@ -1,9 +1,10 @@
-FROM node:7.7-alpine
+FROM node:alpine
 
 RUN mkdir -p /usr/src/app
 WORKDIR /usr/src/app
 
-COPY . /usr/src/app
-RUN npm install && npm cache clean
+COPY package.json .
+RUN npm install && npm cache clean --force
+COPY . .
 
 CMD ["node", "server.js"]
