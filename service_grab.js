@@ -16,7 +16,10 @@ const GRABSTART = process.env.GRABSTART || "2017-02-14T00:00:00Z",
     GRAB_TOURNAMENT_QUEUE = process.env.GRAB_TOURNAMENT_QUEUE || "grab_tournament",
     REGIONS = (process.env.REGIONS || "na,eu,sg,sa,ea").split(","),
     TOURNAMENT_REGIONS = (process.env.TOURNAMENT_REGIONS || "tournament-na," +
-        "tournament-eu,tournament-sg,tournament-sa,tournament-ea").split(",");
+        "tournament-eu,tournament-sg,tournament-sa,tournament-ea").split(","),
+    REGULAR_MODES = process.env.REGULAR_MODES || "casual,ranked",
+    BRAWL_MODES = process.env.BRAWL_MODES || "casual_aral,blitz_pvp_ranked",
+    TOURNAMENT_MODES = process.env.TOURNAMENT_MODES || "private,private_party_draft_match";
 
 module.exports = class Analyzer extends Service {
     constructor() {
@@ -102,9 +105,9 @@ module.exports = class Analyzer extends Service {
     // convenience
     getGameModes(category) {
         switch (category) {
-            case "regular": return "casual,ranked";
-            case "brawl": return "casual_aral,blitz_pvp_ranked";
-            case "tournament": return "private,private_party_draft_match";
+            case "regular": return REGULAR_MODES;
+            case "brawl": return BRAWL_MODES;
+            case "tournament": return TOURNAMENT_MODES;
         }
         logger.error("unsupported game mode category", { category: category });
     }
