@@ -54,14 +54,21 @@ module.exports = class Cruncher extends Service {
     // upcrunch player's stats
     async crunchPlayer(category, api_id) {
         const db = this.getDatabase(category),
-            where = { player_api_id: api_id };
+            where = { player_api_id: api_id },
+            last_crunch_r = await db.PlayerPoint.findOne({
+                attributes: [ "updated_at" ],  // stores max created_at
+                where,
+                order: [ ["updated_at", "DESC"] ]
+            });
+        if (last_crunch_r) where.created_at = { $gt: last_crunch_r.updated_at };
 
         // wipe previous calculations
         await db.PlayerPoint.destroy({ where });
         // get all participants for this player
         const participations = await db.Participant.findAll({
             attributes: [ "api_id" ],
-            where
+            where,
+            order: [ ["created_at", "ASC" ] ]
         });
         // send everything to cruncher
         logger.info("sending participations to cruncher",
