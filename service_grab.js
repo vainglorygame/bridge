@@ -157,6 +157,7 @@ module.exports = class Analyzer extends Service {
     async grabPlayer(name, region, last_match_created_date, id, category) {
         const start = new Date(Date.parse(last_match_created_date)),
             end = new Date();  // today
+        end.setMinutes(end.getMinutes() - 1);  // TODO API hotfix, server time sync issue
 
         const payload_template = {
             "region": region,
