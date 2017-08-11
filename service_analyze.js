@@ -8,6 +8,7 @@ const Promise = require("bluebird"),
 const logger = global.logger,
     ANALYZE_QUEUE = process.env.ANALYZE_QUEUE || "analyze",
     ANALYZE_TOURNAMENT_QUEUE = process.env.ANALYZE_TOURNAMENT_QUEUE || "analyze_tournament",
+    ANALYZE_MODES = (process.env.ANALYZE_MODES || "casual,ranked").split(","),
     SHOVEL_SIZE = parseInt(process.env.SHOVEL_SIZE) || 1000;
 
 module.exports = class Analyzer extends Service {
@@ -23,6 +24,11 @@ module.exports = class Analyzer extends Service {
             // calculate TrueSkill for everyone
             "/api/rank/:category*?": async (req, res) => {
                 this.analyzeGlobal(req.params.category || "regular");
+                res.sendStatus(204);
+            },
+            // calculate TrueSkill for everyone, overwriting everything
+            "/api/rerank/:category*?": async (req, res) => {
+                this.analyzeGlobal(req.params.category || "regular", true);
                 res.sendStatus(204);
             },
             // calculate TrueSkill for one player
@@ -43,21 +49,30 @@ module.exports = class Analyzer extends Service {
         });
     }
 
-    async analyzeGlobal(category) {
+    // overwrite: analyze *all* matches
+    async analyzeGlobal(category, overwrite=false) {
         const db = this.getDatabase(category);
-        let offset = 0, matches;
+        let offset = new Date(0), matches;
         do {
             matches = await db.Match.findAll({
-                attributes: ["api_id"],
-                where: { trueskill_quality: null },
+                attributes: [ "api_id", "created_at" ],
+                where: overwrite? {
+                    "created_at": { $gt: offset },
+                    "game_mode": { $in: ANALYZE_MODES }
+                } : {
+                    trueskill_quality: null,
+                    "created_at": { $gt: offset },
+                    "game_mode": { $in: ANALYZE_MODES }
+                },
                 limit: SHOVEL_SIZE,
-                offset: offset,
                 order: [ ["created_at", "ASC"] ]
             });
+            if (matches.length > 0)
+                offset = matches[matches.length-1].created_at;
+
             await Promise.each(matches, async (m) =>
                 await this.forward(this.getTarget(category), m.api_id,
                     { persistent: true }));
-            offset += SHOVEL_SIZE;
             logger.info("loading more matches into analyzer",
                 { offset: offset, limit: SHOVEL_SIZE, size: matches.length });
         } while (matches.length == SHOVEL_SIZE);
@@ -69,6 +84,7 @@ module.exports = class Analyzer extends Service {
             participations = await db.Participant.findAll({
             attributes: ["match_api_id"],
             where: {
+                // TODO filter for ANALYZE_MODES
                 player_api_id: api_id,
                 trueskill_mu: null  // where not analyzed yet
             },

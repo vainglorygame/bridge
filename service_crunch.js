@@ -62,11 +62,9 @@ module.exports = class Cruncher extends Service {
             });
         if (last_crunch_r) where.created_at = { $gt: last_crunch_r.updated_at };
 
-        // wipe previous calculations
-        await db.PlayerPoint.destroy({ where });
         // get all participants for this player
         const participations = await db.Participant.findAll({
-            attributes: [ "api_id" ],
+            attributes: [ "api_id", "created_at" ],
             where,
             order: [ ["created_at", "ASC" ] ]
         });
