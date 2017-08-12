@@ -6,8 +6,8 @@ const Promise = require("bluebird"),
     Service = require("./service_skeleton.js");
 
 const logger = global.logger,
-    SAMPLE_QUEUE = process.env.SAMPLE_QUEUE || "sample",
-    SAMPLE_TOURNAMENT_QUEUE = process.env.SAMPLE_TOURNAMENT_QUEUE || "sample_tournament";
+    SAMPLE_QUEUE = process.env.SAMPLE_QUEUE || "telesuck",
+    SAMPLE_TOURNAMENT_QUEUE = process.env.SAMPLE_TOURNAMENT_QUEUE || "telesuck";
 
 module.exports = class Analyzer extends Service {
     constructor() {
