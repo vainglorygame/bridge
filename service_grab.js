@@ -14,7 +14,7 @@ const GRABSTART = process.env.GRABSTART || "2017-02-14T00:00:00Z",
     GRAB_QUEUE = process.env.GRAB_QUEUE || "grab",
     GRAB_BRAWL_QUEUE = process.env.GRAB_BRAWL_QUEUE || "grab_brawl",
     GRAB_TOURNAMENT_QUEUE = process.env.GRAB_TOURNAMENT_QUEUE || "grab_tournament",
-    REGIONS = (process.env.REGIONS || "na,eu,sg,sa,ea").split(","),
+    REGIONS = (process.env.REGIONS || "na,eu,sg,sa,ea,cn").split(","),
     TOURNAMENT_REGIONS = (process.env.TOURNAMENT_REGIONS || "tournament-na," +
         "tournament-eu,tournament-sg,tournament-sa,tournament-ea").split(","),
     REGULAR_MODES = process.env.REGULAR_MODES || "casual,ranked",
