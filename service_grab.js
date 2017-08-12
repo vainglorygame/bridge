@@ -187,6 +187,7 @@ module.exports = class Analyzer extends Service {
                 "sort": "createdAt"
             }
         }, now = new Date();
+        now.setMinutes(now.getMinutes() - 1);  // TODO API hotfix, server time sync issue
         logger.info("requesting triple player grab", {
             names: names, region: region, category: category
         });
@@ -203,6 +204,7 @@ module.exports = class Analyzer extends Service {
     async grabMatches(region, lmcd) {
         if (lmcd == undefined) lmcd = new Date(Date.parse(this.getGrabstart("tournament")));
         const now = new Date();
+        now.setMinutes(now.getMinutes() - 1);  // TODO API hotfix, server time sync issue
 
         // add 1s, because createdAt-start <= x <= createdAt-end
         // so without the +1s, we'd always get the last_match_created_date match back
