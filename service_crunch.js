@@ -7,6 +7,8 @@ const Promise = require("bluebird"),
 
 const logger = global.logger,
     CRUNCH_QUEUE = process.env.CRUNCH_QUEUE || "crunch_global",
+    CRUNCH_BAN_QUEUE = process.env.CRUNCH_BAN_QUEUE || "crunch_ban",
+    CRUNCH_PHASE_QUEUE = process.env.CRUNCH_PHASE_QUEUE || "crunch_phase",
     CRUNCH_PLAYER_QUEUE = process.env.CRUNCH_PLAYER_QUEUE || "crunch_player",
     CRUNCH_TOURNAMENT_QUEUE = process.env.CRUNCH_TOURNAMENT_QUEUE || "crunch_tournament",
     SHOVEL_SIZE = parseInt(process.env.SHOVEL_SIZE) || 1000;
@@ -18,6 +20,8 @@ module.exports = class Cruncher extends Service {
         this.setTargets({
             "regular": CRUNCH_QUEUE,
             "regular_player": CRUNCH_PLAYER_QUEUE,
+            "regular_phase": CRUNCH_PHASE_QUEUE,
+            "regular_ban": CRUNCH_BAN_QUEUE,
             "tournament": CRUNCH_TOURNAMENT_QUEUE
         });
 
@@ -27,9 +31,9 @@ module.exports = class Cruncher extends Service {
                 this.crunchGlobal(req.params.category || "regular");
                 res.sendStatus(204);
             },
-            // crunch all players
-            "/api/player/crunch/:category*?": async (req, res) => {
-                this.crunchGlobal(req.params.category || "regular", true);
+            // crunch global Telemetry meta
+            "/api/phasecrunch/:category*?": async (req, res) => {
+                this.crunchPhases(req.params.category || "regular");
                 res.sendStatus(204);
             },
             // crunch a player
@@ -58,6 +62,7 @@ module.exports = class Cruncher extends Service {
             last_crunch_r = await db.PlayerPoint.findOne({
                 attributes: [ "updated_at" ],  // stores max created_at
                 where,
+                // TODO use dimensions "all" instead
                 order: [ ["updated_at", "DESC"] ]
             });
         if (last_crunch_r) where.created_at = { $gt: last_crunch_r.updated_at };
@@ -77,10 +82,9 @@ module.exports = class Cruncher extends Service {
     }
 
     // crunch global stats
-    async crunchGlobal(category, is_player=false) {
+    async crunchGlobal(category) {
         const db = this.getDatabase(category),
-            key_name = "global_last_crunch_participant_id" + (is_player?"_player":""),
-            target = category + (is_player?"_player":"");
+            key_name = "global_last_crunch_participant_id";
         // get lcpid from keys table
         let last_crunch_participant_id = await this.getKey(category, key_name, 0);
 
@@ -88,7 +92,7 @@ module.exports = class Cruncher extends Service {
         let participations;
 
         logger.info("loading all participations into cruncher",
-            { last_crunch_participant_id: last_crunch_participant_id });
+            { last_crunch_participant_id });
         do {
             participations = await db.Participant.findAll({
                 attributes: ["api_id", "id"],
@@ -99,7 +103,7 @@ module.exports = class Cruncher extends Service {
                 order: [ ["id", "ASC"] ]
             });
             await Promise.map(participations, async (p) =>
-                await this.forward(this.getTarget(target), p.api_id,
+                await this.forward(this.getTarget(category), p.api_id,
                     { persistent: true }));
 
             // update lpcid & refetch
@@ -111,9 +115,52 @@ module.exports = class Cruncher extends Service {
             logger.info("loading more participations into cruncher", {
                 limit: SHOVEL_SIZE,
                 size: participations.length,
-                last_crunch_participant_id: last_crunch_participant_id
+                last_crunch_participant_id
             });
         } while (participations.length == SHOVEL_SIZE);
         logger.info("done loading participations into cruncher");
+    }
+
+    // crunch global ban & phase stats
+    async crunchPhases(category) {
+        const db = this.getDatabase(category),
+            key_name = "global_last_crunch_participant_phase_id";
+        // get lcphid from keys table
+        let last_crunch_phase_id = await this.getKey(category, key_name, 0);
+
+        // don't load the whole Participant_phases table at once into memory
+        let phases;
+
+        logger.info("loading all phases into cruncher",
+            { last_crunch_phase_id });
+        do {
+            phases = await db.ParticipantPhases.findAll({
+                attributes: ["id"],
+                where: {
+                    id: { $gt: last_crunch_phase_id }
+                },
+                limit: SHOVEL_SIZE,
+                order: [ ["id", "ASC"] ]
+            });
+            // tables are split, and so are services and queues
+            await Promise.map(phases, async (ph) =>
+                await this.forward(this.getTarget(category + "_phase"), ph.id,
+                    { persistent: true }));
+            await Promise.map(phases, async (ph) =>
+                await this.forward(this.getTarget(category+"_ban"), ph.id,
+                    { persistent: true }));
+
+            // update lphcid & refetch
+            if (phases.length > 0) {
+                last_crunch_phase_id = phases[phases.length-1].id;
+                await this.setKey(category, key_name, last_crunch_phase_id);
+            }
+            logger.info("loading more phases into cruncher", {
+                limit: SHOVEL_SIZE,
+                size: phases.length,
+                last_crunch_phase_id
+            });
+        } while (phases.length == SHOVEL_SIZE);
+        logger.info("done loading phases into cruncher");
     }
 }
