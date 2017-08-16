@@ -7,7 +7,7 @@ const Promise = require("bluebird"),
 
 const logger = global.logger,
     SAMPLE_QUEUE = process.env.SAMPLE_QUEUE || "telesuck",
-    SAMPLE_TOURNAMENT_QUEUE = process.env.SAMPLE_TOURNAMENT_QUEUE || "telesuck";
+    SAMPLE_TOURNAMENT_QUEUE = process.env.SAMPLE_TOURNAMENT_QUEUE || "telesuck_tournament";
 
 module.exports = class Analyzer extends Service {
     constructor() {

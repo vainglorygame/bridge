@@ -10,7 +10,7 @@ const logger = global.logger,
     CRUNCH_BAN_QUEUE = process.env.CRUNCH_BAN_QUEUE || "crunch_ban",
     CRUNCH_PHASE_QUEUE = process.env.CRUNCH_PHASE_QUEUE || "crunch_phase",
     CRUNCH_PLAYER_QUEUE = process.env.CRUNCH_PLAYER_QUEUE || "crunch_player",
-    CRUNCH_TOURNAMENT_QUEUE = process.env.CRUNCH_TOURNAMENT_QUEUE || "crunch_tournament",
+    CRUNCH_TOURNAMENT_QUEUE = process.env.CRUNCH_TOURNAMENT_QUEUE || "crunch_global_tournament",
     SHOVEL_SIZE = parseInt(process.env.SHOVEL_SIZE) || 1000;
 
 module.exports = class Cruncher extends Service {
