@@ -10,6 +10,7 @@ const api = require("../orm/api"),
 const GRABSTART = process.env.GRABSTART || "2017-02-14T00:00:00Z",
     BRAWL_RETENTION_DAYS = parseInt(process.env.BRAWL_RETENTION_DAYS) || 3,
     PLAYER_PROCESS_QUEUE = process.env.PLAYER_PROCESS_QUEUE || "process",
+    PLAYER_BRAWL_PROCESS_QUEUE = process.env.PLAYER_PROCESS_QUEUE || "process_brawl",
     PLAYER_TOURNAMENT_PROCESS_QUEUE = process.env.PLAYER_TOURNAMENT_PROCESS_QUEUE || "process_tournament",
     GRAB_QUEUE = process.env.GRAB_QUEUE || "grab",
     GRAB_BRAWL_QUEUE = process.env.GRAB_BRAWL_QUEUE || "grab_brawl",
@@ -25,11 +26,13 @@ module.exports = class Analyzer extends Service {
     constructor() {
         super();
 
+        // TODO support multiple targets
         this.setTargets({
             "regular": GRAB_QUEUE,
             "brawl": GRAB_BRAWL_QUEUE,
             "tournament": GRAB_TOURNAMENT_QUEUE,
             "regular_player": PLAYER_PROCESS_QUEUE,
+            "brawl_player": PLAYER_BRAWL_PROCESS_QUEUE,
             "tournament_player": PLAYER_TOURNAMENT_PROCESS_QUEUE
         });
 
@@ -278,8 +281,7 @@ module.exports = class Analyzer extends Service {
         // set last_update and request an update job
         // if last_update is null, we need that player's full history
         let grabstart;
-        if (player.get("last_update") != null && category == "regular")
-            // TODO do not fetch everything on category tournament / brawl
+        if (player.get("last_update") != null)
             grabstart = player.last_match_created_date;
         if (grabstart == undefined) grabstart = this.getGrabstart(category);
         else
