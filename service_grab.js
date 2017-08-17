@@ -9,12 +9,21 @@ const api = require("../orm/api"),
 
 const GRABSTART = process.env.GRABSTART || "2017-02-14T00:00:00Z",
     BRAWL_GRABSTART = process.env.BRAWL_GRABSTART || "2017-02-14T00:00:00Z",
+    // pipe inputs (special to service_grab, see below)
     PLAYER_PROCESS_QUEUE = process.env.PLAYER_PROCESS_QUEUE || "process",
     PLAYER_BRAWL_PROCESS_QUEUE = process.env.PLAYER_BRAWL_PROCESS_QUEUE || "process_brawl",
     PLAYER_TOURNAMENT_PROCESS_QUEUE = process.env.PLAYER_TOURNAMENT_PROCESS_QUEUE || "process_tournament",
     GRAB_QUEUE = process.env.GRAB_QUEUE || "grab",
     GRAB_BRAWL_QUEUE = process.env.GRAB_BRAWL_QUEUE || "grab_brawl",
     GRAB_TOURNAMENT_QUEUE = process.env.GRAB_TOURNAMENT_QUEUE || "grab_tournament",
+    // pipe outputs allow an object destined for one category to reach multiple targets
+    PIPE_REGULAR_OUT = (process.env.PIPE_REGULAR_OUT || "regular").split(","),
+    PIPE_BRAWL_OUT = (process.env.PIPE_BRAWL_OUT || "brawl").split(","),
+    PIPE_TOURNAMENT_OUT = (process.env.PIPE_TOURNAMENT_OUT || "tournament").split(","),
+    PIPE_REGULAR_PLAYER_OUT = (process.env.PIPE_REGULAR_PLAYER_OUT || "regular_player,brawl_player").split(","),
+    PIPE_BRAWL_PLAYER_OUT = (process.env.PIPE_BRAWL_PLAYER_OUT || "regular_player,brawl_player").split(","),
+    PIPE_TOURNAMENT_PLAYER_OUT = (process.env.PIPE_TOURNAMENT_PLAYER_OUT || "tournament_player").split(","),
+    // dynamic region setup
     REGIONS = (process.env.REGIONS || "na,eu,sg,sa,ea,cn").split(","),
     TOURNAMENT_REGIONS = (process.env.TOURNAMENT_REGIONS || "tournament-na," +
         "tournament-eu,tournament-sg,tournament-sa,tournament-ea").split(","),
@@ -26,7 +35,6 @@ module.exports = class Analyzer extends Service {
     constructor() {
         super();
 
-        // TODO support multiple targets
         this.setTargets({
             "regular": GRAB_QUEUE,
             "brawl": GRAB_BRAWL_QUEUE,
@@ -36,6 +44,24 @@ module.exports = class Analyzer extends Service {
             "tournament_player": PLAYER_TOURNAMENT_PROCESS_QUEUE
         });
 
+        // category=[pipe in] spreads to multiple categories=[pipe out]
+        // Map { pipe in: [pipe out 1, pipe out 2, …] }
+        this.categoryPipe = new Map({
+            "regular": PIPE_REGULAR_OUT,
+            "brawl": PIPE_BRAWL_OUT,
+            "tournament": PIPE_TOURNAMENT_OUT,
+            "regular_player": PIPE_REGULAR_PLAYER_OUT,
+            "brawl_player": PIPE_BRAWL_PLAYER_OUT,
+            "tournament_player": PIPE_TOURNAMENT_PLAYER_OUT
+        });
+
+        // wrapper around getTarget to support pipes
+        this.getTargets((pipeIn) =>
+            this.categoryPipe.get(pipeIn)
+            .map((pipeOut) =>
+                this.getTarget(pipeOut)));
+
+        // setup API endpoints
         this.setRoutes({
             // update a whole region (tournament only)
             "/api/match/:region/update": async (req, res) => {
@@ -170,9 +196,11 @@ module.exports = class Analyzer extends Service {
         await Promise.each(this.getSplitGrabs(payload_template, start, end), async (payload) => {
             logger.info("requesting update", { name: name, region: region });
 
-            await this.forward(this.getTarget(category), JSON.stringify(payload), {
-                persistent: true,
-                headers: { notify: "player." + name }
+            await Promise.all(this.getTargets(category), async (target) => {
+                await this.forward(target, JSON.stringify(payload), {
+                    persistent: true,
+                    headers: { notify: "player." + name }
+                });
             });
         });
     }
@@ -193,9 +221,11 @@ module.exports = class Analyzer extends Service {
         });
 
         await Promise.each(this.getSplitGrabs(payload_template, grabstart, now), async (payload) => {
-            await this.forward(this.getTarget(category), JSON.stringify(payload), {
-                persistent: true,
-                headers: { notify: "player." + names }
+            await Promise.all(this.getTargets(category), async (target) => {
+                await this.forward(target, JSON.stringify(payload), {
+                    persistent: true,
+                    headers: { notify: "player." + names }
+                });
             });
         });
     }
@@ -238,9 +268,11 @@ module.exports = class Analyzer extends Service {
             await this.notify("player." + name, "search_success");
             // send to processor, so the player is in db
             // no matter whether we find matches or not
-            await this.forward(this.getTarget(category + "_player"), JSON.stringify(player), {
-                persistent: true, type: "player",
-                headers: { notify: "player." + player.name }
+            await Promise.all(this.getTargets(category + "_player"), async (target) => {
+                await this.forward(target, JSON.stringify(player), {
+                    persistent: true, type: "player",
+                    headers: { notify: "player." + player.name }
+                });
             });
             return player;
         });
