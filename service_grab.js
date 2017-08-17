@@ -8,7 +8,7 @@ const api = require("../orm/api"),
     Service = require("./service_skeleton.js");
 
 const GRABSTART = process.env.GRABSTART || "2017-02-14T00:00:00Z",
-    BRAWL_RETENTION_DAYS = parseInt(process.env.BRAWL_RETENTION_DAYS) || 3,
+    BRAWL_GRABSTART = process.env.BRAWL_GRABSTART || "2017-02-14T00:00:00Z",
     PLAYER_PROCESS_QUEUE = process.env.PLAYER_PROCESS_QUEUE || "process",
     PLAYER_BRAWL_PROCESS_QUEUE = process.env.PLAYER_BRAWL_PROCESS_QUEUE || "process_brawl",
     PLAYER_TOURNAMENT_PROCESS_QUEUE = process.env.PLAYER_TOURNAMENT_PROCESS_QUEUE || "process_tournament",
@@ -126,10 +126,7 @@ module.exports = class Analyzer extends Service {
     getGrabstart(category) {
         switch (category) {
             case "regular": return GRABSTART;
-            case "brawl": 
-                let past = new Date();
-                past.setDate(past.getDate() - BRAWL_RETENTION_DAYS);
-                return past.toISOString();  // minimum
+            case "brawl": return BRAWL_GRABSTART;
             case "tournament": return "2017-02-12T00:00:00Z";  // all
         }
         logger.error("unsupported grabstart category", { category: category });
