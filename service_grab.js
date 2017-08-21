@@ -275,6 +275,7 @@ module.exports = class Analyzer extends Service {
             // send to processor, so the player is in db
             // no matter whether we find matches or not
             await Promise.map(this.getTargets(category + "_player"), async (target) => {
+                await this.notify("player." + player.name, "player_pending");
                 await this.forward(target, JSON.stringify(player), {
                     persistent: true, type: "player",
                     headers: { notify: "player." + player.name }
