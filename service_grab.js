@@ -7,8 +7,8 @@ const api = require("../orm/api"),
     Seq = require("sequelize"),
     Service = require("./service_skeleton.js");
 
-const GRABSTART = process.env.GRABSTART || "2017-02-14T00:00:00Z",
-    BRAWL_GRABSTART = process.env.BRAWL_GRABSTART || "2017-02-14T00:00:00Z",
+const GRABSTART = process.env.GRABSTART || "2017-02-01T00:00:00Z",
+    BRAWL_GRABSTART = process.env.BRAWL_GRABSTART || "2017-02-01T00:00:00Z",
     // pipe inputs (special to service_grab, see below)
     PLAYER_PROCESS_QUEUE = process.env.PLAYER_PROCESS_QUEUE || "process_player",
     PLAYER_BRAWL_PROCESS_QUEUE = process.env.PLAYER_BRAWL_PROCESS_QUEUE || "process_brawl_player",
@@ -164,17 +164,22 @@ module.exports = class Analyzer extends Service {
     getSplitGrabs(payload, start, end) {
         let last_start = new Date(start.getTime()),
             payloads = [];
-        // loop forwards, adding 4w until we passed NOW
+        // loop forwards, adding 1 month until we passed NOW
         while (last_start < end) {
-            let this_end = new Date(last_start.getTime() + (4 * 60*60*24*7*1000)),  // add 4w
-                this_start = new Date(last_start.getTime());
+            /*
+            let this_end = new Date(last_start.getTime() - 1000);
+            this_end.setMonth(this_end.getMonth() + 1);
+            */
+            let this_end = new Date(last_start.getTime() + (4 * 60*60*24*7*1000));
+            let this_start = new Date(last_start.getTime());
+            // query from `start` to `start + 1 month - 1s`, hitting the full month
 
             if(this_end > end) this_end = end;
             let pl = JSON.parse(JSON.stringify(payload));
             pl["params"]["filter[createdAt-start]"] = this_start.toISOString();
             pl["params"]["filter[createdAt-end]"] = this_end.toISOString();
             payloads.push(pl);
-            // +1s, do not overlap start&end, or a match at created_at=start=end will appear twice
+            // add +1s so we do not overlap start&end and are in the next month
             last_start = new Date(this_end.getTime() + 1000);
         }
         return payloads;
