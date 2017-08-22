@@ -11,6 +11,13 @@ const logger = global.logger,
     CRUNCH_PHASE_QUEUE = process.env.CRUNCH_PHASE_QUEUE || "crunch_phase",
     CRUNCH_PLAYER_QUEUE = process.env.CRUNCH_PLAYER_QUEUE || "crunch_player",
     CRUNCH_TOURNAMENT_QUEUE = process.env.CRUNCH_TOURNAMENT_QUEUE || "crunch_global_tournament",
+    CRUNCH_TOURNAMENT_BAN_QUEUE = process.env.CRUNCH_TOURNAMENT_BAN_QUEUE || "crunch_ban_tournament",
+    CRUNCH_TOURNAMENT_PHASE_QUEUE = process.env.CRUNCH_TOURNAMENT_PHASE_QUEUE || "crunch_phase_tournament",
+    CRUNCH_TOURNAMENT_PLAYER_QUEUE = process.env.CRUNCH_TOURNAMENT_PLAYER_QUEUE || "crunch_player_tournament",
+    CRUNCH_BRAWL_QUEUE = process.env.CRUNCH_BRAWL_QUEUE || "crunch_global_brawl",
+    CRUNCH_BRAWL_BAN_QUEUE = process.env.CRUNCH_BRAWL_BAN_QUEUE || "crunch_ban_brawl",
+    CRUNCH_BRAWL_PHASE_QUEUE = process.env.CRUNCH_BRAWL_PHASE_QUEUE || "crunch_phase_brawl",
+    CRUNCH_BRAWL_PLAYER_QUEUE = process.env.CRUNCH_BRAWL_PLAYER_QUEUE || "crunch_player_brawl",
     SHOVEL_SIZE = parseInt(process.env.SHOVEL_SIZE) || 1000;
 
 module.exports = class Cruncher extends Service {
@@ -22,7 +29,14 @@ module.exports = class Cruncher extends Service {
             "regular_player": CRUNCH_PLAYER_QUEUE,
             "regular_phase": CRUNCH_PHASE_QUEUE,
             "regular_ban": CRUNCH_BAN_QUEUE,
-            "tournament": CRUNCH_TOURNAMENT_QUEUE
+            "tournament": CRUNCH_TOURNAMENT_QUEUE,
+            "tournament_player": CRUNCH_TOURNAMENT_PLAYER_QUEUE,
+            "tournament_phase": CRUNCH_TOURNAMENT_PHASE_QUEUE,
+            "tournament_ban": CRUNCH_TOURNAMENT_BAN_QUEUE,
+            "brawl": CRUNCH_BRAWL_QUEUE,
+            "brawl_player": CRUNCH_BRAWL_PLAYER_QUEUE,
+            "brawl_phase": CRUNCH_BRAWL_PHASE_QUEUE,
+            "brawl_ban": CRUNCH_BRAWL_BAN_QUEUE
         });
 
         this.setRoutes({
@@ -147,7 +161,7 @@ module.exports = class Cruncher extends Service {
                 await this.forward(this.getTarget(category + "_phase"), ph.id,
                     { persistent: true }));
             await Promise.map(phases, async (ph) =>
-                await this.forward(this.getTarget(category+"_ban"), ph.id,
+                await this.forward(this.getTarget(category + "_ban"), ph.id,
                     { persistent: true }));
 
             // update lphcid & refetch
