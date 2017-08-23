@@ -97,7 +97,7 @@ module.exports = class Cruncher extends Service {
             await this.forward(this.getTarget(category + "_player"),
                 p.api_id, {
                     persistent: true,
-                    headers: { notify: "player." + player.name }
+                    headers: { notify: "player." + name }
                 }
             );
         });
