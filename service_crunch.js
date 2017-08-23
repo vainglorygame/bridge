@@ -63,14 +63,15 @@ module.exports = class Cruncher extends Service {
                 }
                 logger.info("player in db, crunching", { name: req.params.name });
                 players.forEach((player) =>
-                    this.crunchPlayer(category, player.api_id));  // fire away
+                    this.crunchPlayer(category, player.api_id, player.name));
+                // fire away
                 res.sendStatus(204);
             }
         });
     }
 
     // upcrunch player's stats
-    async crunchPlayer(category, api_id) {
+    async crunchPlayer(category, api_id, name) {
         const db = this.getDatabase(category),
             where = { player_api_id: api_id },
             last_crunch_r = await db.PlayerPoint.findOne({
@@ -90,9 +91,16 @@ module.exports = class Cruncher extends Service {
         // send everything to cruncher
         logger.info("sending participations to cruncher",
             { length: participations.length });
-        await Promise.map(participations, async (p) =>
+        await Promise.map(participations, async (p) => {
+            await this.notify("player." + name, "crunch_pending");
+
             await this.forward(this.getTarget(category + "_player"),
-                p.api_id, { persistent: true }));
+                p.api_id, {
+                    persistent: true,
+                    headers: { notify: "player." + player.name }
+                }
+            );
+        });
     }
 
     // crunch global stats
