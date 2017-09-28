@@ -166,10 +166,10 @@ module.exports = class Cruncher extends Service {
             });
             // tables are split, and so are services and queues
             await Promise.map(phases, async (ph) =>
-                await this.forward(this.getTarget(category + "_phase"), ph.id,
+                await this.forward(this.getTarget(category + "_phase"), ph.id.toString(),
                     { persistent: true }));
             await Promise.map(phases, async (ph) =>
-                await this.forward(this.getTarget(category + "_ban"), ph.id,
+                await this.forward(this.getTarget(category + "_ban"), ph.id.toString(),
                     { persistent: true }));
 
             // update lphcid & refetch
