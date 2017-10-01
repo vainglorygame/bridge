@@ -10,14 +10,17 @@ const logger = global.logger,
     CRUNCH_BAN_QUEUE = process.env.CRUNCH_BAN_QUEUE || "crunch_ban",
     CRUNCH_PHASE_QUEUE = process.env.CRUNCH_PHASE_QUEUE || "crunch_phase",
     CRUNCH_PLAYER_QUEUE = process.env.CRUNCH_PLAYER_QUEUE || "crunch_player",
+    CRUNCH_HEROVSHERO_QUEUE = process.env.CRUNCH_HEROVSHERO_QUEUE || "crunch_herovshero",
     CRUNCH_TOURNAMENT_QUEUE = process.env.CRUNCH_TOURNAMENT_QUEUE || "crunch_global_tournament",
     CRUNCH_TOURNAMENT_BAN_QUEUE = process.env.CRUNCH_TOURNAMENT_BAN_QUEUE || "crunch_ban_tournament",
     CRUNCH_TOURNAMENT_PHASE_QUEUE = process.env.CRUNCH_TOURNAMENT_PHASE_QUEUE || "crunch_phase_tournament",
     CRUNCH_TOURNAMENT_PLAYER_QUEUE = process.env.CRUNCH_TOURNAMENT_PLAYER_QUEUE || "crunch_player_tournament",
+    CRUNCH_TOURNAMENT_HEROVSHERO_QUEUE = process.env.CRUNCH_TOURNAMENT_HEROVSHERO_QUEUE || "crunch_tournament_herovshero",
     CRUNCH_BRAWL_QUEUE = process.env.CRUNCH_BRAWL_QUEUE || "crunch_global_brawl",
     CRUNCH_BRAWL_BAN_QUEUE = process.env.CRUNCH_BRAWL_BAN_QUEUE || "crunch_ban_brawl",
     CRUNCH_BRAWL_PHASE_QUEUE = process.env.CRUNCH_BRAWL_PHASE_QUEUE || "crunch_phase_brawl",
     CRUNCH_BRAWL_PLAYER_QUEUE = process.env.CRUNCH_BRAWL_PLAYER_QUEUE || "crunch_player_brawl",
+    CRUNCH_BRAWL_HEROVSHERO_QUEUE = process.env.CRUNCH_BRAWL_HEROVSHERO_QUEUE || "crunch_brawl_herovshero",
     SHOVEL_SIZE = parseInt(process.env.SHOVEL_SIZE) || 1000;
 
 module.exports = class Cruncher extends Service {
@@ -25,18 +28,21 @@ module.exports = class Cruncher extends Service {
         super();
 
         this.setTargets({
-            "regular": CRUNCH_QUEUE,
             "regular_player": CRUNCH_PLAYER_QUEUE,
-            "regular_phase": CRUNCH_PHASE_QUEUE,
-            "regular_ban": CRUNCH_BAN_QUEUE,
-            "tournament": CRUNCH_TOURNAMENT_QUEUE,
+            "regular+": CRUNCH_QUEUE,
+            "regular+phase": CRUNCH_PHASE_QUEUE,
+            "regular+ban": CRUNCH_BAN_QUEUE,
+            "regular+herovshero": CRUNCH_HEROVSHERO_QUEUE,
             "tournament_player": CRUNCH_TOURNAMENT_PLAYER_QUEUE,
-            "tournament_phase": CRUNCH_TOURNAMENT_PHASE_QUEUE,
-            "tournament_ban": CRUNCH_TOURNAMENT_BAN_QUEUE,
-            "brawl": CRUNCH_BRAWL_QUEUE,
+            "tournament+": CRUNCH_TOURNAMENT_QUEUE,
+            "tournament+phase": CRUNCH_TOURNAMENT_PHASE_QUEUE,
+            "tournament+ban": CRUNCH_TOURNAMENT_BAN_QUEUE,
+            "tournament+herovshero": CRUNCH_TOURNAMENT_HEROVSHERO_QUEUE,
             "brawl_player": CRUNCH_BRAWL_PLAYER_QUEUE,
-            "brawl_phase": CRUNCH_BRAWL_PHASE_QUEUE,
-            "brawl_ban": CRUNCH_BRAWL_BAN_QUEUE
+            "brawl+": CRUNCH_BRAWL_QUEUE,
+            "brawl+phase": CRUNCH_BRAWL_PHASE_QUEUE,
+            "brawl+ban": CRUNCH_BRAWL_BAN_QUEUE,
+            "brawl+herovshero": CRUNCH_BRAWL_HEROVSHERO_QUEUE
         });
 
         this.setRoutes({
@@ -45,9 +51,17 @@ module.exports = class Cruncher extends Service {
                 this.crunchGlobal(req.params.category || "regular");
                 res.sendStatus(204);
             },
+            "/api/herovsherocrunch/:category*?": async (req, res) => {
+                this.crunchGlobal(req.params.category || "regular", "herovshero");
+                res.sendStatus(204);
+            },
             // crunch global Telemetry meta
             "/api/phasecrunch/:category*?": async (req, res) => {
-                this.crunchPhases(req.params.category || "regular");
+                this.crunchPhases(req.params.category || "regular", "phase");
+                res.sendStatus(204);
+            },
+            "/api/bancrunch/:category*?": async (req, res) => {
+                this.crunchPhases(req.params.category || "regular", "ban");
                 res.sendStatus(204);
             },
             // crunch a player
@@ -104,11 +118,11 @@ module.exports = class Cruncher extends Service {
     }
 
     // crunch global stats
-    async crunchGlobal(category) {
-        const db = this.getDatabase(category),
-            key_name = "global_last_crunch_participant_id";
+    async crunchGlobal(db_identifier, queue_identifier="") {
+        const db = this.getDatabase(db_identifier),
+            key_name = "global_last_crunch_participant_id" + queue_identifier;
         // get lcpid from keys table
-        let last_crunch_participant_id = await this.getKey(category, key_name, 0);
+        let last_crunch_participant_id = await this.getKey(db_identifier, key_name, 0);
 
         // don't load the whole Participant table at once into memory
         let participations;
@@ -125,13 +139,13 @@ module.exports = class Cruncher extends Service {
                 order: [ ["id", "ASC"] ]
             });
             await Promise.map(participations, async (p) =>
-                await this.forward(this.getTarget(category), p.api_id,
+                await this.forward(this.getTarget(`${db_identifier}+${queue_identifier}`), p.api_id,
                     { persistent: true }));
 
             // update lpcid & refetch
             if (participations.length > 0) {
                 last_crunch_participant_id = participations[participations.length-1].id;
-                await this.setKey(category, key_name,
+                await this.setKey(db_identifier, key_name,
                     last_crunch_participant_id);
             }
             logger.info("loading more participations into cruncher", {
@@ -144,11 +158,11 @@ module.exports = class Cruncher extends Service {
     }
 
     // crunch global ban & phase stats
-    async crunchPhases(category) {
-        const db = this.getDatabase(category),
-            key_name = "global_last_crunch_participant_phase_id";
+    async crunchPhases(db_identifier, queue_identifier="") {
+        const db = this.getDatabase(db_identifier),
+            key_name = "global_last_crunch_participant_phase_id" + queue_identifier;
         // get lcphid from keys table
-        let last_crunch_phase_id = await this.getKey(category, key_name, 0);
+        let last_crunch_phase_id = await this.getKey(db_identifier, key_name, 0);
 
         // don't load the whole Participant_phases table at once into memory
         let phases;
@@ -164,18 +178,14 @@ module.exports = class Cruncher extends Service {
                 limit: SHOVEL_SIZE,
                 order: [ ["id", "ASC"] ]
             });
-            // tables are split, and so are services and queues
             await Promise.map(phases, async (ph) =>
-                await this.forward(this.getTarget(category + "_phase"), ph.id.toString(),
-                    { persistent: true }));
-            await Promise.map(phases, async (ph) =>
-                await this.forward(this.getTarget(category + "_ban"), ph.id.toString(),
+                await this.forward(this.getTarget(`${db_identifier}+${queue_identifier}`), ph.id.toString(),
                     { persistent: true }));
 
             // update lphcid & refetch
             if (phases.length > 0) {
                 last_crunch_phase_id = phases[phases.length-1].id;
-                await this.setKey(category, key_name, last_crunch_phase_id);
+                await this.setKey(db_identifier, key_name, last_crunch_phase_id);
             }
             logger.info("loading more phases into cruncher", {
                 limit: SHOVEL_SIZE,
