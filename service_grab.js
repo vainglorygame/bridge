@@ -124,8 +124,15 @@ module.exports = class Analyzer extends Service {
             },
             // update a random user
             "/api/player": async (req, res) => {
-                // TODO this becomes slow
-                let player = await this.getDatabase("regular").Player.findOne({ order: [ Seq.fn("RAND") ] });
+                const db = this.getDatabase("regular");
+                const maxPlayerId = (await db.Player.findOne({
+                    order: [ ["id", "DESC"] ]
+                })).id;
+                let player;
+                do {
+                    const id = Math.floor(Math.random() * maxPlayerId);
+                    player = await db.Player.findOne({ where: { id } });
+                } while (player == undefined);
                 this.updatePlayer(player, "regular");
                 res.json(player);
             }
