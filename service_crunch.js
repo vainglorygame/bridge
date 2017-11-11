@@ -64,43 +64,47 @@ module.exports = class Cruncher extends Service {
                 this.crunchPhases(req.params.category || "regular", "ban");
                 res.sendStatus(204);
             },
-            // crunch a player
-            "/api/player/:name/crunch/:category*?": async (req, res) => {
+            // crunch a player if they have not been crunched ever
+            "/api/player/:name/firstcrunch/:category*?": async (req, res) => {
                 const category = req.params.category || "regular",
                     db = this.getDatabase(req.params.category || "regular"),
-                    players = await db.Player.findAll({ where: { name: req.params.name } });
+                    players = await db.Player.findAll({
+                        where: { name: req.params.name }
+                    });
                 if (players == undefined) {
                     logger.error("player not found in db, won't crunch",
                         { name: req.params.name });
                     res.sendStatus(404);
                     return;
                 }
-                logger.info("player in db, crunching", { name: req.params.name });
-                players.forEach((player) =>
-                    this.crunchPlayer(category, player.api_id, player.name));
+                await Promise.all(players.map(async (player) => {
+                    const count_player_points = await db.PlayerPoint.count({
+                        where: { player_api_id: player.api_id }
+                    });
+                    if (count_player_points == 0) {
+                        logger.info("player in db, crunching for first time",
+                            { name: req.params.name });
+                        await this.crunchPlayer(category, player.api_id, player.name);
+                    }
+                }));
                 // fire away
                 res.sendStatus(204);
             }
         });
     }
 
-    // upcrunch player's stats
+    // crunch player's stats
     async crunchPlayer(category, api_id, name) {
         const db = this.getDatabase(category),
-            where = { player_api_id: api_id },
-            last_crunch_r = await db.PlayerPoint.findOne({
-                attributes: [ "updated_at" ],  // stores max created_at
-                where,
-                // TODO use dimensions "all" instead
-                order: [ ["updated_at", "DESC"] ]
-            });
-        if (last_crunch_r) where.created_at = { $gt: last_crunch_r.updated_at };
+            where = { player_api_id: api_id };
 
         // get all participants for this player
         const participations = await db.Participant.findAll({
             attributes: [ "api_id", "created_at" ],
-            where,
-            order: [ ["created_at", "ASC" ] ]
+            where: {
+                player_api_id: api_id,
+                trueskill_mu: { $ne: null }  // rated by analyzer
+            }
         });
         // send everything to cruncher
         logger.info("sending participations to cruncher",
