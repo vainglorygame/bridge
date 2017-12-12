@@ -308,7 +308,7 @@ module.exports = class Analyzer extends Service {
 
             // request grab jobs
             await Promise.map(players, async (p) =>
-                await this.grabPlayer(p.name, p.shard_id,
+                await this.grabPlayer(p.name, p.shardId,
                     this.getGrabstart(category), p.id, category));
         });
         // notify web
@@ -341,7 +341,7 @@ module.exports = class Analyzer extends Service {
         // but player.name != players[0].attributes.name
         // (with a name change)
         await Promise.map(players, async (p) =>
-            await this.grabPlayer(p.name, p.shard_id, grabstart, p.id, category));
+            await this.grabPlayer(p.name, p.shardId, grabstart, p.id, category));
     }
 
     // update a region from API based on db records
