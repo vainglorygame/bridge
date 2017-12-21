@@ -27,7 +27,7 @@ const GRABSTART = process.env.GRABSTART || "2017-02-01T00:00:00Z",
     REGIONS = (process.env.REGIONS || "na,eu,sg,sa,ea,cn").split(","),
     TOURNAMENT_REGIONS = (process.env.TOURNAMENT_REGIONS || "tournament-na," +
         "tournament-eu,tournament-sg,tournament-sa,tournament-ea").split(","),
-    REGULAR_MODES = process.env.REGULAR_MODES || "casual,ranked",
+    REGULAR_MODES = process.env.REGULAR_MODES,
     BRAWL_MODES = process.env.BRAWL_MODES || "casual_aral,blitz_pvp_ranked",
     TOURNAMENT_MODES = process.env.TOURNAMENT_MODES || "private,private_party_draft_match";
 
