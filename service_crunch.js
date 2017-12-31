@@ -65,7 +65,7 @@ module.exports = class Cruncher extends Service {
                 res.sendStatus(204);
             },
             // crunch a player if they have not been crunched ever
-            "/api/player/:name/firstcrunch/:category*?": async (req, res) => {
+            "/api/player/:name/crunch/:category*?": async (req, res) => {
                 const category = req.params.category || "regular",
                     db = this.getDatabase(req.params.category || "regular"),
                     players = await db.Player.findAll({
@@ -78,14 +78,7 @@ module.exports = class Cruncher extends Service {
                     return;
                 }
                 await Promise.all(players.map(async (player) => {
-                    const count_player_points = await db.PlayerPoint.count({
-                        where: { player_api_id: player.api_id }
-                    });
-                    if (count_player_points == 0) {
-                        logger.info("player in db, crunching for first time",
-                            { name: req.params.name });
-                        await this.crunchPlayer(category, player.api_id, player.name);
-                    }
+                    await this.crunchPlayer(category, player);
                 }));
                 // fire away
                 res.sendStatus(204);
@@ -94,28 +87,35 @@ module.exports = class Cruncher extends Service {
     }
 
     // crunch player's stats
-    async crunchPlayer(category, api_id, name) {
-        const db = this.getDatabase(category),
-            where = { player_api_id: api_id };
+    async crunchPlayer(category, player) {
+        const db = this.getDatabase(category);
 
-        // get all participants for this player
+        const last_crunch_id = player.last_crunch_id || 0;
+
+        // get all participants for this player since last crunch
         const participations = await db.Participant.findAll({
-            attributes: [ "api_id", "created_at" ],
+            attributes: [ "id", "api_id" ],
             where: {
-                player_api_id: api_id,
-                trueskill_mu: { $ne: null }  // rated by analyzer
-            }
+                player_api_id: player.api_id,
+                id: { $gt: last_crunch_id }
+            },
+            order: [ ["id", "ASC"] ]
         });
-        // send everything to cruncher
-        logger.info("sending participations to cruncher",
+
+        logger.info("sending participations to player cruncher",
             { length: participations.length });
+
+        if (participations.length > 0) {
+            await player.update({ last_crunch_id: participations[participations.length-1 ].id });
+        }
+
         await Promise.map(participations, async (p) => {
-            await this.notify("player." + name, "crunch_pending");
+            await this.notify("player." + player.name, "crunch_pending");
 
             await this.forward(this.getTarget(category + "_player"),
                 p.api_id, {
                     persistent: true,
-                    headers: { notify: "player." + name }
+                    headers: { notify: "player." + player.name }
                 }
             );
         });
