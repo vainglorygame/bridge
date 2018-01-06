@@ -276,24 +276,29 @@ module.exports = class Analyzer extends Service {
 
         // players.length and page length will be 1 in 99.9999% of all cases
         // - but just in case.
-        const players = await Promise.map(await api.requests("players", region, options, logger), async (player) => {
-            logger.info("found", { name: name, id: id, region: region });
-            await this.notify("player." + name, "search_success");
-            // send to processor, so the player is in db
-            // no matter whether we find matches or not
-            await Promise.map(this.getTargets(category + "_player"), async (target) => {
-                await this.notify("player." + player.name, "player_pending");
-                await this.forward(target, JSON.stringify(player), {
-                    persistent: true, type: "player",
-                    headers: { notify: "player." + player.name }
+        try {
+            const players = await Promise.map(await api.requests("players", region, options, logger), async (player) => {
+                logger.info("found", { name: name, id: id, region: region });
+                await this.notify("player." + name, "search_success");
+                // send to processor, so the player is in db
+                // no matter whether we find matches or not
+                await Promise.map(this.getTargets(category + "_player"), async (target) => {
+                    await this.notify("player." + player.name, "player_pending");
+                    await this.forward(target, JSON.stringify(player), {
+                        persistent: true, type: "player",
+                        headers: { notify: "player." + player.name }
+                    });
                 });
+                return player;
             });
-            return player;
-        });
-        if (players.length == 0)
-            logger.warn("not found", { name: name, id: id, region: region });
+            if (players.length == 0)
+                logger.warn("not found", { name, id, region });
 
-        return players;
+            return players;
+        } catch (err) {
+            logger.error("error during player search", { name, id, region, err });
+            return [];
+        }
     }
 
     // search for player name on all shards
