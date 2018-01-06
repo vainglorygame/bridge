@@ -125,6 +125,8 @@ module.exports = class Cruncher extends Service {
     async crunchGlobal(db_identifier, queue_identifier="") {
         const db = this.getDatabase(db_identifier),
             key_name = "global_last_crunch_participant_id" + queue_identifier;
+        if (db == undefined) return;
+
         // get lcpid from keys table
         let last_crunch_participant_id = await this.getKey(db_identifier, key_name, 0);
 
