@@ -26,6 +26,9 @@ const app = express(),
             new (winston.transports.Console)({
                 timestamp: true,
                 colorize: true
+            }),
+            new (winston.transports.File)({
+                filename: "bridge.log"
             })
         ]
     });
