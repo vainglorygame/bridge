@@ -5,7 +5,6 @@ const amqp = require("amqplib"),
     Promise = require("bluebird"),
     winston = require("winston"),
     loggly = require("winston-loggly-bulk"),
-    datadog = require("winston-datadog"),
     Seq = require("sequelize"),
     request = require("request-promise"),
     express = require("express"),
@@ -17,7 +16,6 @@ const PORT = parseInt(process.env.PORT) || 8880,
     DATABASE_TOURNAMENT_URI = process.env.DATABASE_TOURNAMENT_URI,
     RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
     LOGGLY_TOKEN = process.env.LOGGLY_TOKEN,
-    DATADOG_TOKEN = process.env.DATADOG_TOKEN,
     BRAWL = process.env.BRAWL != "false",
     TOURNAMENT = process.env.TOURNAMENT != "false";
 
@@ -53,12 +51,6 @@ if (LOGGLY_TOKEN)
         tags: ["backend", "bridge"],
         json: true
     });
-
-// datadog integration
-if (DATADOG_TOKEN)
-    logger.add(new datadog({
-        api_key: DATADOG_TOKEN
-    }), null, true);
 
 // connect to broker and db
 let dbs = {};
